@@ -7,7 +7,7 @@
 
 `sparse-ot` is a Python package published to PyPI that provides drop-in replacements for POT's `emd()` and `emd2()` functions, optimized for heavily sparse bipartite graphs. It wraps two C++ solvers — Bonneel's network simplex (efficient for dense/near-dense cost matrices) and a float64-patched LEMON CostScaling (efficient for sparse cost matrices) — and routes between them automatically based on empirically derived sparsity thresholds. The package is structured to facilitate future merge into the official POT project.
 
-**Reference use case:** optimal transport between two 3D images of size 256×256×256, where only ~12K of 16M voxels are non-zero and the cost matrix encodes only nearby voxel connections.
+**Reference use case:** restricted optimal transport between two fully dense 3D images of size 256×256×256 (n = m = 256³ ≈ 16.7M). In the dense case the cost matrix has 256⁶ ≈ 281 trillion entries. In the reference sparse case only certain transport paths are permitted (e.g. nearby voxels), giving 16 × 2 × 256³ ≈ 536M non-zero cost entries (~32 allowed neighbors per voxel) and a sparsity ratio of ~2×10⁻⁶. The distributions themselves are always treated as fully dense; all sparsity is in the cost matrix (the bipartite graph structure).
 
 ---
 
@@ -154,11 +154,11 @@ The COO triplets returned by the C++ layer are assembled into scipy CSR (or torc
 def select_solver(n: int, m: int, nnz: int, solver: str | None = None) -> str:
     if solver is not None:
         return solver
-    sparsity = nnz / (n * m)
-    return 'bonneel' if sparsity > _threshold(n, m) else 'lemon'
+    k = nnz / n   # average neighbors per source node
+    return 'bonneel' if k > _k_threshold(n, m) else 'lemon'
 ```
 
-`_threshold(n, m)` is a lookup into a table loaded from `benchmarks/results/routing_thresholds.json` at import time. The table encodes the empirically derived crossover sparsity — the point at which LEMON becomes faster than Bonneel — for each `(n, m)` combination in the benchmark sweep.
+`_k_threshold(n, m)` is a lookup into a table loaded from `benchmarks/results/routing_thresholds.json` at import time. The table encodes the empirically derived crossover number of neighbors per node — the point at which LEMON becomes faster than Bonneel — for each `(n, m)` combination in the benchmark sweep. Using `k` rather than raw sparsity ratio makes the threshold numerically stable across very large n (where sparsity ratios approach floating-point underflow).
 
 **Before benchmarks are run**, the package ships with a conservative default (`sparsity > 0.01` → Bonneel) that is safe across all problem sizes.
 
@@ -168,20 +168,22 @@ def select_solver(n: int, m: int, nnz: int, solver: str | None = None) -> str:
 
 ## 6. Benchmark Suite
 
+**Problem generator:** both distributions `a` and `b` are always fully dense (all n bins have positive mass, drawn from a Dirichlet distribution). Sparsity is controlled exclusively by `k` — the number of allowed neighbors per source node — so `nnz = k × n`. Problems are structured to match the reference use case: a regular grid in 1D/2D/3D where each source node connects to its `k` nearest neighbors in the target grid.
+
 ### Efficiency sweep
 
 ```
 n        ∈ {1K, 4K, 16K, 64K, 256K, 1M, 4M, 16M}
-sparsity ∈ {0.0001%, 0.001%, 0.01%, 0.1%, 1%, 10%, 50%, 100%}
+k        ∈ {2, 8, 32, 128, 512, 2048, n/10, n}     # neighbors per node; k=n is the fully dense case
 solvers  = ['bonneel', 'lemon', 'pot_reference']
 metrics  = wall_time (median of 5 runs), peak_memory_mb, iterations
 ```
 
-Results: `benchmarks/results/efficiency.json`
+Note: `pot_reference` and `bonneel` are only run where `k × n` fits in memory as a dense matrix (n ≤ 64K or k = n ≤ 16K). Results: `benchmarks/results/efficiency.json`
 
 ### Accuracy sweep
 
-For each `(n, sparsity)` configuration where LEMON is the selected solver:
+For each `(n, k)` configuration where LEMON is the selected solver:
 - **n ≤ 64K:** ground truth via POT's `emd2`; report relative cost error `|cost_lemon - cost_pot| / cost_pot` and primal feasibility `‖T @ 1 − a‖∞`, `‖Tᵀ @ 1 − b‖∞`
 - **n > 64K:** POT cannot run at this scale; report primal feasibility only (no cost error metric)
 
@@ -189,9 +191,9 @@ Results: `benchmarks/results/accuracy.json`
 
 ### Report figures (publication-quality, PDF + PNG)
 
-- **Heatmap:** wall time ratio (LEMON/Bonneel) over the (n, sparsity) grid; crossover contour marks the routing threshold
-- **Line plots:** wall time vs. n at fixed sparsity levels, one line per solver
-- **Accuracy plot:** relative cost error and feasibility residual vs. sparsity, with confidence bands
+- **Heatmap:** wall time ratio (LEMON/Bonneel) over the (n, k) grid; crossover contour marks the routing threshold
+- **Line plots:** wall time vs. n at fixed k values, one line per solver
+- **Accuracy plot:** relative cost error and feasibility residual vs. k, with confidence bands across random problem instances
 - **Routing threshold derivation:** annotated crossover contour used to generate `routing_thresholds.json`
 
 Figures saved to `benchmarks/results/figures/`. Key figures embedded in README.

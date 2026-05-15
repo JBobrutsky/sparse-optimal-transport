@@ -7,8 +7,7 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
         cost_sparsity_threshold=0.0, solver=None):
     """Transport plan between distributions a and b with cost matrix M.
 
-    Drop-in replacement for ot.emd(). Returns a dense numpy array in Plan 1.
-    Sparse inputs and LEMON/OR-Tools routing are added in Plans 2 and 3.
+    Drop-in replacement for ot.emd(). Returns a dense numpy array.
 
     Parameters
     ----------
@@ -20,11 +19,11 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
     log : bool
         If True, return (G, log_dict).
     center_dual : bool
-        Accepted for API compatibility; not used in Plan 1.
+        Accepted for POT compatibility; has no effect.
     cost_sparsity_threshold : float
-        Accepted for API compatibility; routing uses this in Plan 2.
+        Values with |M[i,j]| <= threshold are treated as absent edges. Not yet used in this version.
     solver : str or None
-        'bonneel', or None (auto). 'lemon' and 'ortools' added in Plans 2-3.
+        'bonneel' or None (auto).
 
     Returns
     -------
@@ -43,7 +42,7 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
     if solver not in (None, "bonneel"):
         raise ValueError(
             f"solver={solver!r} not available in Plan 1. "
-            "Use None or 'bonneel'. 'lemon' and 'ortools' come in Plans 2-3."
+            "Use None or 'bonneel'."
         )
 
     # Bonneel requires exactly balanced supply/demand.

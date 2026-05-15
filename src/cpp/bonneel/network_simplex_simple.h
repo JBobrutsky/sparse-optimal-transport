@@ -54,7 +54,9 @@
 #endif
 //#include "core.h"
 //#include "lmath.h"
+#ifndef NOOMP
 #include <omp.h>
+#endif
 #include <cmath>
 
 
@@ -466,6 +468,7 @@ namespace lemon {
 			bool findEnteringArc() {
 				Cost min_val = 0;
 
+#ifndef NOOMP
 				ArcsType N = omp_get_max_threads();
 				std::vector<Cost> minArray(N, 0);
 				std::vector<ArcsType> arcId(N);
@@ -502,6 +505,25 @@ namespace lemon {
 						return true;
 					}
 				}
+#else
+				for (ArcsType i = 0; i < _search_arc_num; i += _block_size) {
+					ArcsType e = 0;
+					for (ArcsType j = 0; j < std::min(i + _block_size, _search_arc_num) - i; j++) {
+						e = (_next_arc + i + j); if (e >= _search_arc_num) e -= _search_arc_num;
+						Cost c = _state[e] * (_cost[e] + _pi[_source[e]] - _pi[_target[e]]);
+						if (c < min_val) {
+							min_val = c;
+							_in_arc = e;
+						}
+					}
+					Cost a = std::abs(_pi[_source[_in_arc]]) > std::abs(_pi[_target[_in_arc]]) ? std::abs(_pi[_source[_in_arc]]) : std::abs(_pi[_target[_in_arc]]);
+					a = a > std::abs(_cost[_in_arc]) ? a : std::abs(_cost[_in_arc]);
+					if (min_val < -std::numeric_limits<Cost>::epsilon()*a) {
+						_next_arc = e;
+						return true;
+					}
+				}
+#endif
 
 				Cost a = fabs(_pi[_source[_in_arc]]) > fabs(_pi[_target[_in_arc]]) ? fabs(_pi[_source[_in_arc]]) : fabs(_pi[_target[_in_arc]]);
 				a = a > fabs(_cost[_in_arc]) ? a : fabs(_cost[_in_arc]);
@@ -894,8 +916,10 @@ namespace lemon {
 				num_big_subsequences = _arc_num % mixingCoeff;
 				num_total_big_subsequence_numbers = subsequence_length * num_big_subsequences;
 
+#ifndef NOOMP
 #pragma omp parallel for schedule(static)
-				for (Arc a = 0; a <= _graph.maxArcId(); a++) {   // --a <=> _graph.next(a)  , -1 == INVALID 
+#endif
+				for (Arc a = 0; a <= _graph.maxArcId(); a++) {   // --a <=> _graph.next(a)  , -1 == INVALID
 					ArcsType i = sequence(_graph.maxArcId()-a);
 					_source[i] = _node_id(_graph.source(a));
 					_target[i] = _node_id(_graph.target(a));
@@ -1448,7 +1472,9 @@ namespace lemon {
 				} else {
 					arc_vector.resize(demand_nodes.size());
 					// Find the min. cost incomming arc for each demand node
+#ifndef NOOMP
 #pragma omp parallel for
+#endif
 					for (ArcsType i = 0; i < ArcsType(demand_nodes.size()); ++i) {
 						Node v = demand_nodes[i];
 						Cost min_cost = std::numeric_limits<Cost>::max();
@@ -1468,7 +1494,9 @@ namespace lemon {
 			} else {
 				arc_vector.resize(supply_nodes.size());
 				// Find the min. cost outgoing arc for each supply node
+#ifndef NOOMP
 #pragma omp parallel for
+#endif
 				for (int i = 0; i < int(supply_nodes.size()); ++i) {
 					Node u = supply_nodes[i];
 					Cost min_cost = std::numeric_limits<Cost>::max();

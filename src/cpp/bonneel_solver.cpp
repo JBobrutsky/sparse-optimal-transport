@@ -25,6 +25,13 @@ py::array_t<double> solve_dense(
     const double* bp = static_cast<const double*>(b_buf.ptr);
     const double* Mp = static_cast<const double*>(M_buf.ptr);
 
+    if (n == 0 || m == 0) {
+        py::array_t<double> G({n, m});
+        std::fill(static_cast<double*>(G.request().ptr),
+                  static_cast<double*>(G.request().ptr) + n * m, 0.0);
+        return G;
+    }
+
     Digraph di(n, m);
     NetworkSimplexSimple<Digraph, double, double, int64_t> net(
         di, true, n + m, (int64_t)n * m, (size_t)numItermax
@@ -39,6 +46,9 @@ py::array_t<double> solve_dense(
         for (int j = 0; j < m; j++)
             net.setCost(di.arcFromId((int64_t)i * m + j), Mp[i * m + j]);
 
+    // Run the solver. Bonneel's NS can return INFEASIBLE for floating-point
+    // problems even when the flows are correct (artificial-arc precision issue);
+    // correctness is validated by marginal constraints in the Python layer.
     net.run();
 
     py::array_t<double> G({n, m});

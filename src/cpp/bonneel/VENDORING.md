@@ -7,7 +7,9 @@ Files:
 
 License: See header files (LEMON library license with modifications by Nicolas Bonneel)  
 Vendored: 2026-05-15  
-Modifications: none
+Modifications:
+- Wrapped `#include <omp.h>` and all `#pragma omp` directives with `#ifndef NOOMP` guards
+  to allow builds without OpenMP (define NOOMP to disable).
 
 ## API Reference
 

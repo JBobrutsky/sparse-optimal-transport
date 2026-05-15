@@ -41,8 +41,7 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
         )
     if solver not in (None, "bonneel"):
         raise ValueError(
-            f"solver={solver!r} not available in Plan 1. "
-            "Use None or 'bonneel'."
+            f"solver={solver!r} is not supported. Use None or 'bonneel'."
         )
 
     # Bonneel requires exactly balanced supply/demand.
@@ -73,6 +72,7 @@ def emd2(a, b, M, numItermax=100000, log=False, return_matrix=False,
     return_matrix : bool
         If True, also return the transport plan G.
     cost_sparsity_threshold : float
+        Values with |M[i,j]| <= threshold are treated as absent edges.
     solver : str or None
 
     Returns

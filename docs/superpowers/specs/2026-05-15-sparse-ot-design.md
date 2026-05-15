@@ -204,16 +204,28 @@ Both thresholds are stored in `benchmarks/results/routing_thresholds.json` and d
 
 **Problem generator:** both distributions `a` and `b` are always fully dense (all n bins have positive mass, drawn from a Dirichlet distribution). Sparsity is controlled exclusively by `k` — the number of allowed neighbors per source node — so `nnz = k × n`. Problems are structured to match the reference use case: a regular grid in 1D/2D/3D where each source node connects to its `k` nearest neighbors in the target grid.
 
+### Memory cutoffs
+
+Benchmark cutoffs are defined as named constants in `bench_solvers.py` and documented in the README. Default values target a 16GB RAM machine:
+
+| Constant | Default | Condition skipped |
+|---|---|---|
+| `MAX_DENSE_N` | 8 192 | Dense matrix `n×n×8 bytes > ~512MB`; Bonneel and POT reference skipped above this |
+| `MAX_SPARSE_NNZ` | 200 000 000 | Sparse CSR `nnz×20 bytes > ~4GB`; LEMON skipped above this (OR-Tools only) |
+| `MAX_ORTOOLS_NNZ` | 500 000 000 | OR-Tools memory limit; OR-Tools skipped above this |
+
+Cells outside these limits are recorded as `null` in the results JSON (not skipped silently) so the coverage gap is visible in the report. The README notes that the reference case (n=16.7M, nnz=536M) exceeds `MAX_ORTOOLS_NNZ` on a 16GB machine and documents how to raise the limits on larger hardware.
+
 ### Efficiency sweep
 
 ```
-n        ∈ {1K, 4K, 16K, 64K, 256K, 1M, 4M, 16M}
+n        ∈ {1K, 4K, 8K, 16K, 64K, 256K, 1M, 4M, 16M}
 k        ∈ {2, 8, 32, 128, 512, 2048, n/10, n}     # neighbors per node; k=n is the fully dense case
 solvers  = ['bonneel', 'lemon', 'ortools', 'pot_reference']
 metrics  = wall_time (median of 5 runs), peak_memory_mb, iterations
 ```
 
-Note: `pot_reference` and `bonneel` are only run where `k × n` fits in memory as a dense matrix (n ≤ 64K or k = n ≤ 16K). Results: `benchmarks/results/efficiency.json`
+Each `(n, k, solver)` cell is skipped (recorded as `null`) if `n > MAX_DENSE_N` for dense solvers, `k×n > MAX_SPARSE_NNZ` for LEMON, or `k×n > MAX_ORTOOLS_NNZ` for OR-Tools. Results: `benchmarks/results/efficiency.json`
 
 ### Accuracy sweep
 

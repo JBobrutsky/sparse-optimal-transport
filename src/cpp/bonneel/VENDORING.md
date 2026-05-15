@@ -1,8 +1,11 @@
 # Bonneel Network Simplex
 
 Source: https://github.com/nbonneel/network_simplex  
-File: network_simplex_simple.h  
-License: See header file (LEMON library license with modifications by Nicolas Bonneel)  
+Files:
+- `network_simplex_simple.h` — core network simplex algorithm
+- `full_bipartitegraph.h` — required bipartite graph structure (included by network_simplex_simple.h)
+
+License: See header files (LEMON library license with modifications by Nicolas Bonneel)  
 Vendored: 2026-05-15  
 Modifications: none
 

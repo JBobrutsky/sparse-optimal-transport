@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 import ot
 
 import sparse_ot

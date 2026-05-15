@@ -5,7 +5,7 @@
 
 ## Overview
 
-`sparse-ot` is a Python package published to PyPI that provides drop-in replacements for POT's `emd()` and `emd2()` functions, optimized for heavily sparse bipartite graphs. It wraps two C++ solvers — Bonneel's network simplex (efficient for dense/near-dense cost matrices) and a float64-patched LEMON CostScaling (efficient for sparse cost matrices) — and routes between them automatically based on empirically derived sparsity thresholds. The package is structured to facilitate future merge into the official POT project.
+`sparse-ot` is a Python package published to PyPI that provides drop-in replacements for POT's `emd()` and `emd2()` functions, optimized for heavily sparse bipartite graphs. It supports three solvers — Bonneel's network simplex (dense/near-dense cost matrices), float64-patched LEMON CostScaling (sparse, moderate scale), and OR-Tools min-cost flow (very large sparse problems) — and routes between them automatically based on empirically derived thresholds. The package is structured to facilitate future merge into the official POT project.
 
 **Reference use case:** restricted optimal transport between two fully dense 3D images of size 256×256×256 (n = m = 256³ ≈ 16.7M). In the dense case the cost matrix has 256⁶ ≈ 281 trillion entries. In the reference sparse case only certain transport paths are permitted (e.g. nearby voxels), giving 16 × 2 × 256³ ≈ 536M non-zero cost entries (~32 allowed neighbors per voxel) and a sparsity ratio of ~2×10⁻⁶. The distributions themselves are always treated as fully dense; all sparsity is in the cost matrix (the bipartite graph structure).
 
@@ -22,6 +22,7 @@ sparse-optimal-transport/
 │   │   ├── backend.py               # math backend abstraction (mirrors POT's)
 │   │   ├── sparse_utils.py          # sparsity detection, thresholding, format conversion
 │   │   ├── routing.py               # solver dispatch
+│   │   ├── ortools_solver.py        # OR-Tools min-cost flow (Python API, optional dep)
 │   │   └── _ext/                    # compiled pybind11 modules (build artifacts)
 │   └── cpp/
 │       ├── bonneel/
@@ -55,16 +56,17 @@ import sparse_ot as sot
 
 # Transport plan — returns sparse or dense matrix depending on solver path
 G = sot.emd(a, b, M, numItermax=100000, log=False, center_dual=True,
-            cost_sparsity_threshold=0.0, solver=None)
+            cost_sparsity_threshold=0.0, solver=None, ortools_cost_scale=1e6)
 
 # Transport cost — returns scalar
 cost = sot.emd2(a, b, M, numItermax=100000, log=False, return_matrix=False,
-                cost_sparsity_threshold=0.0, solver=None)
+                cost_sparsity_threshold=0.0, solver=None, ortools_cost_scale=1e6)
 ```
 
 **Extensions beyond POT:**
 - `cost_sparsity_threshold` (float, default 0.0): when `M` is a dense array, values with `|M[i,j]| <= cost_sparsity_threshold` are treated as absent edges. Exact zeros are always treated as absent regardless of this parameter.
-- `solver` (str or None): `'bonneel'`, `'lemon'`, or `None` (auto-route). Bypasses routing when set.
+- `solver` (str or None): `'bonneel'`, `'lemon'`, `'ortools'`, or `None` (auto-route). Bypasses routing when set.
+- `ortools_cost_scale` (float, default 1e6): OR-Tools requires int64 costs; float64 costs are multiplied by this factor and rounded before being passed to OR-Tools, then the result is unscaled. Only relevant when `solver='ortools'` or OR-Tools is selected by the router.
 
 **Output format:**
 - Bonneel path: numpy float64 array (dense), matching POT's output exactly
@@ -94,13 +96,14 @@ User calls emd(a, b, M)
     │   → 'bonneel'  if sparsity_ratio > _threshold(n, m)
     │   → 'lemon'    otherwise
     │
-    ├─ C++ extension
-    │   Bonneel: (a, b, M_dense float64) → dense transport matrix float64
-    │   LEMON:   (a, b, row_ptr, col_idx, costs) → COO (i, j, val) float64
+    ├─ solver
+    │   Bonneel (C++ ext): (a, b, M_dense float64) → dense transport matrix float64
+    │   LEMON   (C++ ext): (a, b, row_ptr, col_idx, costs float64) → COO (i, j, val) float64
+    │   OR-Tools (Python):  costs scaled to int64 → SimpleMinCostFlow → COO unscaled to float64
     │
     └─ backend.py
         wrap result in output format matching input backend
-        LEMON result always assembled as scipy CSR (or torch sparse COO)
+        LEMON / OR-Tools result assembled as scipy CSR (or torch sparse COO)
 ```
 
 ---
@@ -145,6 +148,27 @@ The COO triplets returned by the C++ layer are assembled into scipy CSR (or torc
 
 **LEMON vendoring:** ~15 headers from the CostScaling dependency tree. BSD-licensed. The float64 patch is isolated to the termination condition and documented in `src/cpp/lemon/PATCHES.md`.
 
+### OR-Tools solver (`ortools_solver.py`)
+
+OR-Tools is consumed via its official Python package (`pip install sparse-ot[ortools]`), not vendored. No C++ wrapper is needed — OR-Tools' `SimpleMinCostFlow` Python API is used directly.
+
+Since OR-Tools requires int64 costs and int64 node supplies, float64 inputs are scaled before solving and unscaled after:
+
+```python
+# ortools_solver.py
+from ortools.graph.python import min_cost_flow
+
+def solve_ortools(a, b, row_ptr, col_idx, costs, ortools_cost_scale=1e6):
+    # Scale distributions to int64 supplies/demands
+    # Scale costs to int64
+    # Build SimpleMinCostFlow graph arc by arc
+    # Solve and extract flow values
+    # Unscale transport plan back to float64
+    # Return COO (row_indices, col_indices, values)
+```
+
+OR-Tools is imported lazily inside `solve_ortools` so that the package remains importable without OR-Tools installed. A missing OR-Tools installation raises `ImportError` with a clear install message only when the OR-Tools solver is actually invoked.
+
 ---
 
 ## 5. Routing Logic
@@ -155,12 +179,22 @@ def select_solver(n: int, m: int, nnz: int, solver: str | None = None) -> str:
     if solver is not None:
         return solver
     k = nnz / n   # average neighbors per source node
-    return 'bonneel' if k > _k_threshold(n, m) else 'lemon'
+    thresholds = _load_thresholds(n, m)   # from routing_thresholds.json
+    if k > thresholds['bonneel_lemon']:
+        return 'bonneel'
+    if n > thresholds['lemon_ortools']:
+        return 'ortools'
+    return 'lemon'
 ```
 
-`_k_threshold(n, m)` is a lookup into a table loaded from `benchmarks/results/routing_thresholds.json` at import time. The table encodes the empirically derived crossover number of neighbors per node — the point at which LEMON becomes faster than Bonneel — for each `(n, m)` combination in the benchmark sweep. Using `k` rather than raw sparsity ratio makes the threshold numerically stable across very large n (where sparsity ratios approach floating-point underflow).
+Routing is a two-threshold decision over `k` (neighbors per node) and `n` (problem size):
+- **k above `bonneel_lemon` threshold** → Bonneel (cost matrix is near-dense, NS wins)
+- **k below threshold AND n above `lemon_ortools` threshold** → OR-Tools (graph too large for LEMON)
+- **otherwise** → LEMON
 
-**Before benchmarks are run**, the package ships with a conservative default (`sparsity > 0.01` → Bonneel) that is safe across all problem sizes.
+Both thresholds are stored in `benchmarks/results/routing_thresholds.json` and derived empirically from the benchmark sweep. Using `k` rather than raw sparsity ratio keeps the threshold numerically stable across very large n.
+
+**Before benchmarks are run**, the package ships with conservative defaults: `bonneel_lemon = 128`, `lemon_ortools = 1_000_000`.
 
 **The threshold table is regenerated** by running `python benchmarks/generate_report.py` and committing the updated JSON. The README documents this process for users who want hardware-specific routing.
 
@@ -175,7 +209,7 @@ def select_solver(n: int, m: int, nnz: int, solver: str | None = None) -> str:
 ```
 n        ∈ {1K, 4K, 16K, 64K, 256K, 1M, 4M, 16M}
 k        ∈ {2, 8, 32, 128, 512, 2048, n/10, n}     # neighbors per node; k=n is the fully dense case
-solvers  = ['bonneel', 'lemon', 'pot_reference']
+solvers  = ['bonneel', 'lemon', 'ortools', 'pot_reference']
 metrics  = wall_time (median of 5 runs), peak_memory_mb, iterations
 ```
 
@@ -191,10 +225,10 @@ Results: `benchmarks/results/accuracy.json`
 
 ### Report figures (publication-quality, PDF + PNG)
 
-- **Heatmap:** wall time ratio (LEMON/Bonneel) over the (n, k) grid; crossover contour marks the routing threshold
+- **Heatmap:** wall time ratio over the (n, k) grid for each solver pair (LEMON/Bonneel, OR-Tools/LEMON); crossover contours mark the two routing thresholds
 - **Line plots:** wall time vs. n at fixed k values, one line per solver
-- **Accuracy plot:** relative cost error and feasibility residual vs. k, with confidence bands across random problem instances
-- **Routing threshold derivation:** annotated crossover contour used to generate `routing_thresholds.json`
+- **Accuracy plot:** relative cost error and feasibility residual vs. k per solver, with confidence bands across random problem instances
+- **Routing threshold derivation:** annotated crossover contours used to generate `routing_thresholds.json`
 
 Figures saved to `benchmarks/results/figures/`. Key figures embedded in README.
 
@@ -219,7 +253,7 @@ Figures saved to `benchmarks/results/figures/`. Key figures embedded in README.
 - **Build backend:** scikit-build-core (pybind11 extensions via CMakeLists.txt)
 - **Wheel building:** `cibuildwheel` in CI; targets Linux x86_64/aarch64, macOS x86_64/arm64, Windows x86_64, Python 3.10–3.12
 - **Publishing:** GitHub Actions workflow triggered on `v*` tag push; uses PyPI Trusted Publisher (no stored API tokens)
-- **Dependencies:** `numpy`, `scipy` (hard); `torch` as optional extra (`pip install sparse-ot[torch]`)
+- **Dependencies:** `numpy`, `scipy` (hard); `torch` as optional extra (`pip install sparse-ot[torch]`); `ortools` as optional extra (`pip install sparse-ot[ortools]`); both together via `pip install sparse-ot[torch,ortools]`
 - **License:** MIT
 
 ---

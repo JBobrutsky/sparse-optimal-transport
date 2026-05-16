@@ -10,11 +10,12 @@ problem size and sparsity:
 | LEMON        | Sparse, moderate scale (float64-patched)       | Vendored C++ (`src/cpp/lemon`) + custom patch |
 | OR-Tools     | Very large sparse problems                     | Optional `ortools` Python dep |
 
-> **Rebuild gotcha:** `uv pip install -e .` does not always recompile the
-> pybind11 extensions when only the C++ sources change. After editing files
-> under `src/cpp/`, force a rebuild with
-> `uv pip install --no-build-isolation -e . --force-reinstall --no-deps`,
-> or `touch src/cpp/<file>.cpp` first.
+> **Editable installs auto-rebuild on import.** `pyproject.toml` sets
+> `editable.rebuild = true` so the pybind11 extensions are recompiled
+> automatically the next time `sparse_ot` is imported after a `src/cpp/`
+> edit. The persistent build directory is `build/{wheel_tag}/`. To force
+> a clean rebuild manually, run
+> `uv pip install --no-build-isolation -e . --force-reinstall --no-deps`.
 
 ## Quickstart
 

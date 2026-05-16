@@ -2,25 +2,25 @@
   "200": {
     "4": {
       "bonneel": {
-        "wall_time_s": 0.08574433252215385,
-        "peak_memory_mb": 0.9309968948364258,
+        "wall_time_s": 0.0016603339463472366,
+        "peak_memory_mb": 0.9310464859008789,
         "n_runs": 1,
         "nnz": 800
       },
       "lemon": {
-        "wall_time_s": 0.1544609609991312,
+        "wall_time_s": 0.15443570911884308,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 800
       },
       "ortools": {
-        "wall_time_s": 0.08882579207420349,
-        "peak_memory_mb": 0.3847494125366211,
+        "wall_time_s": 0.09164995513856411,
+        "peak_memory_mb": 0.38478565216064453,
         "n_runs": 1,
         "nnz": 800
       },
       "pot_reference": {
-        "wall_time_s": 0.0013015829026699066,
+        "wall_time_s": 0.0012944545596837997,
         "peak_memory_mb": 0.9246482849121094,
         "n_runs": 1,
         "nnz": 800
@@ -28,25 +28,25 @@
     },
     "20": {
       "bonneel": {
-        "wall_time_s": 0.08463546074926853,
+        "wall_time_s": 0.0013628322631120682,
         "peak_memory_mb": 0.9181289672851562,
         "n_runs": 1,
         "nnz": 4000
       },
       "lemon": {
-        "wall_time_s": 0.14615174755454063,
+        "wall_time_s": 0.14378462359309196,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 4000
       },
       "ortools": {
-        "wall_time_s": 0.05595533549785614,
+        "wall_time_s": 0.0545891672372818,
         "peak_memory_mb": 0.3277320861816406,
         "n_runs": 1,
         "nnz": 4000
       },
       "pot_reference": {
-        "wall_time_s": 0.001385251060128212,
+        "wall_time_s": 0.001303166151046753,
         "peak_memory_mb": 0.9234809875488281,
         "n_runs": 1,
         "nnz": 4000
@@ -54,25 +54,25 @@
     },
     "32": {
       "bonneel": {
-        "wall_time_s": 0.08465066738426685,
+        "wall_time_s": 0.0014053769409656525,
         "peak_memory_mb": 0.9181289672851562,
         "n_runs": 1,
         "nnz": 6400
       },
       "lemon": {
-        "wall_time_s": 0.1801261231303215,
+        "wall_time_s": 0.17977929301559925,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 6400
       },
       "ortools": {
-        "wall_time_s": 0.08093691617250443,
+        "wall_time_s": 0.11225291714072227,
         "peak_memory_mb": 0.37139129638671875,
         "n_runs": 1,
         "nnz": 6400
       },
       "pot_reference": {
-        "wall_time_s": 0.0012936238199472427,
+        "wall_time_s": 0.0012788325548171997,
         "peak_memory_mb": 0.9234809875488281,
         "n_runs": 1,
         "nnz": 6400
@@ -80,25 +80,25 @@
     },
     "200": {
       "bonneel": {
-        "wall_time_s": 0.14410954155027866,
+        "wall_time_s": 0.0018562078475952148,
         "peak_memory_mb": 1.0741233825683594,
         "n_runs": 1,
         "nnz": 40000
       },
       "lemon": {
-        "wall_time_s": 0.4210108332335949,
+        "wall_time_s": 0.4241965003311634,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 40000
       },
       "ortools": {
-        "wall_time_s": 0.5443460401147604,
+        "wall_time_s": 0.5422101262956858,
         "peak_memory_mb": 2.1978683471679688,
         "n_runs": 1,
         "nnz": 40000
       },
       "pot_reference": {
-        "wall_time_s": 0.0019903313368558884,
+        "wall_time_s": 0.0018835831433534622,
         "peak_memory_mb": 0.9234809875488281,
         "n_runs": 1,
         "nnz": 40000
@@ -108,25 +108,25 @@
   "1000": {
     "4": {
       "bonneel": {
-        "wall_time_s": 0.5072012506425381,
+        "wall_time_s": 0.02324187383055687,
         "peak_memory_mb": 22.890785217285156,
         "n_runs": 1,
         "nnz": 4000
       },
       "lemon": {
-        "wall_time_s": 0.695725167170167,
+        "wall_time_s": 0.6982147470116615,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 4000
       },
       "ortools": {
-        "wall_time_s": 0.2711633760482073,
+        "wall_time_s": 0.269529664888978,
         "peak_memory_mb": 7.715831756591797,
         "n_runs": 1,
         "nnz": 4000
       },
       "pot_reference": {
-        "wall_time_s": 0.022267624735832214,
+        "wall_time_s": 0.024174459278583527,
         "peak_memory_mb": 22.915973663330078,
         "n_runs": 1,
         "nnz": 4000
@@ -134,25 +134,25 @@
     },
     "32": {
       "bonneel": {
-        "wall_time_s": 0.4120034147053957,
+        "wall_time_s": 0.023023081943392754,
         "peak_memory_mb": 22.890785217285156,
         "n_runs": 1,
         "nnz": 32000
       },
       "lemon": {
-        "wall_time_s": 1.4995674602687359,
+        "wall_time_s": 1.46886295825243,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 32000
       },
       "ortools": {
-        "wall_time_s": 0.7879868745803833,
+        "wall_time_s": 0.7859580423682928,
         "peak_memory_mb": 7.715831756591797,
         "n_runs": 1,
         "nnz": 32000
       },
       "pot_reference": {
-        "wall_time_s": 0.02215329371392727,
+        "wall_time_s": 0.02110716886818409,
         "peak_memory_mb": 22.915973663330078,
         "n_runs": 1,
         "nnz": 32000
@@ -160,25 +160,25 @@
     },
     "100": {
       "bonneel": {
-        "wall_time_s": 0.41114746034145355,
+        "wall_time_s": 0.0246140006929636,
         "peak_memory_mb": 22.890785217285156,
         "n_runs": 1,
         "nnz": 100000
       },
       "lemon": {
-        "wall_time_s": 5.606098122894764,
+        "wall_time_s": 5.59490554407239,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 100000
       },
       "ortools": {
-        "wall_time_s": 2.6379551235586405,
+        "wall_time_s": 2.6704642921686172,
         "peak_memory_mb": 7.715831756591797,
         "n_runs": 1,
         "nnz": 100000
       },
       "pot_reference": {
-        "wall_time_s": 0.024961290881037712,
+        "wall_time_s": 0.02338670939207077,
         "peak_memory_mb": 22.915973663330078,
         "n_runs": 1,
         "nnz": 100000
@@ -186,25 +186,25 @@
     },
     "1000": {
       "bonneel": {
-        "wall_time_s": 1.3424329161643982,
+        "wall_time_s": 0.048844458535313606,
         "peak_memory_mb": 26.72414779663086,
         "n_runs": 1,
         "nnz": 1000000
       },
       "lemon": {
-        "wall_time_s": 20.447548624128103,
+        "wall_time_s": 20.433096082881093,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 1000000
       },
       "ortools": {
-        "wall_time_s": 26.962612498551607,
+        "wall_time_s": 26.926487416028976,
         "peak_memory_mb": 54.45930480957031,
         "n_runs": 1,
         "nnz": 1000000
       },
       "pot_reference": {
-        "wall_time_s": 0.04379420727491379,
+        "wall_time_s": 0.0471077524125576,
         "peak_memory_mb": 22.915973663330078,
         "n_runs": 1,
         "nnz": 1000000

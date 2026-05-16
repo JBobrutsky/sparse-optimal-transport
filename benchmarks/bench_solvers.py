@@ -256,6 +256,51 @@ def _accuracy_for_cell(solver: str, a, b, M, cost_ref):
     }
 
 
+FEASIBILITY_TOL = 1e-8
+
+
+def compute_accuracy_cell(solver_results: dict) -> dict:
+    """Recompute cost_ref + rel_cost_err using min-across-feasible-solvers.
+
+    solver_results maps solver_name -> dict with either 'error' or
+    ('cost', 'feasibility_a', 'feasibility_b'). Returns a new dict of the
+    same shape, with 'cost_ref' / 'rel_cost_err' attached to feasible
+    entries and 'excluded_from_reference' on entries that ran but failed
+    the feasibility tolerance. 'error' entries are passed through unchanged.
+    """
+    feasible = {}
+    for name, r in solver_results.items():
+        if 'error' in r:
+            continue
+        fa = r.get('feasibility_a', float('inf'))
+        fb = r.get('feasibility_b', float('inf'))
+        if fa is None or fb is None or fa > FEASIBILITY_TOL or fb > FEASIBILITY_TOL:
+            continue
+        feasible[name] = r
+
+    if feasible:
+        cost_ref = min(r['cost'] for r in feasible.values())
+    else:
+        cost_ref = None
+
+    out = {}
+    for name, r in solver_results.items():
+        entry = dict(r)
+        if 'error' in entry:
+            out[name] = entry
+            continue
+        if name in feasible:
+            entry['cost_ref'] = cost_ref
+            entry['rel_cost_err'] = (
+                (entry['cost'] - cost_ref) / cost_ref if cost_ref else 0.0
+            )
+        else:
+            entry['excluded_from_reference'] = True
+            entry['cost_ref'] = cost_ref
+        out[name] = entry
+    return out
+
+
 def _pot_reference_cost(a, b, M_csr) -> float:
     """Run POT on the same restricted problem, encoding non-edges as a large
     finite cost so POT can't route through them.
@@ -285,23 +330,29 @@ def run_accuracy_sweep(ns: list[int], base_ks: list[int]) -> dict:
             results[str(n)][str(k)] = {}
             a, b, M, _ = generate_knn_grid_problem(n=n, k=k, seed=0)
             nnz = M.nnz
-            cost_ref = None
-            if n <= 64_000 and n <= MAX_DENSE_N:
-                try:
-                    cost_ref = _pot_reference_cost(a, b, M)
-                except Exception as e:
-                    # POT may itself report infeasibility for sparse k-NN
-                    # graphs — that's a useful signal, not a benchmark error.
-                    cost_ref = None
-                    print(f"  acc n={n} k={k} pot_reference -> "
-                          f"infeasible/error: {type(e).__name__}: {e}", flush=True)
+            raw: dict = {}
             for solver in ('lemon', 'ortools'):
                 if _solver_skipped(solver, n, nnz):
-                    results[str(n)][str(k)][solver] = None
                     continue
-                results[str(n)][str(k)][solver] = _accuracy_for_cell(solver, a, b, M, cost_ref)
-                print(f"  acc n={n} k={k} solver={solver} -> "
-                      f"{results[str(n)][str(k)][solver]}", flush=True)
+                cell = _accuracy_for_cell(solver, a, b, M, cost_ref=None)
+                cell.pop('cost_ref', None)
+                cell.pop('rel_cost_err', None)
+                raw[solver] = cell
+                print(f"  acc n={n} k={k} solver={solver} -> {cell}", flush=True)
+            # POT participates only at k == n (fully dense — solves the same problem).
+            if k == n and n <= 64_000 and n <= MAX_DENSE_N:
+                try:
+                    cost_pot = _pot_reference_cost(a, b, M)
+                    raw['pot_reference'] = {
+                        'cost': cost_pot,
+                        'feasibility_a': 0.0,
+                        'feasibility_b': 0.0,
+                    }
+                except Exception as e:
+                    raw['pot_reference'] = {'error': f"{type(e).__name__}: {e}"}
+                print(f"  acc n={n} k={k} solver=pot_reference -> "
+                      f"{raw['pot_reference']}", flush=True)
+            results[str(n)][str(k)] = compute_accuracy_cell(raw)
     return results
 
 

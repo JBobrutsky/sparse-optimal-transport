@@ -2,116 +2,146 @@
   "200": {
     "4": {
       "lemon": {
-        "cost": 0.0,
-        "cost_ref": 0.0,
-        "rel_cost_err": 0.0,
-        "feasibility_a": 0.02682349515736821,
-        "feasibility_b": 0.036168433806683456
+        "cost": 0.6875845683540001,
+        "feasibility_a": 4.980195943138366e-13,
+        "feasibility_b": 1.0842415073403222e-11,
+        "cost_ref": 0.687584119,
+        "rel_cost_err": 6.535258560988518e-07
       },
       "ortools": {
-        "error": "RuntimeError: OR-Tools SimpleMinCostFlow did not converge (status=Status.INFEASIBLE)"
+        "cost": 0.687584119,
+        "feasibility_a": 7.189469878807198e-10,
+        "feasibility_b": 4.999014782854083e-10,
+        "cost_ref": 0.687584119,
+        "rel_cost_err": 0.0
       }
     },
     "20": {
       "lemon": {
-        "cost": 0.0,
-        "cost_ref": 0.0,
-        "rel_cost_err": 0.0,
-        "feasibility_a": 0.02682349515736821,
-        "feasibility_b": 0.036168433806683456
+        "cost": 1.6079043958439998,
+        "feasibility_a": 4.963030854343575e-13,
+        "feasibility_b": 6.41637524362304e-12,
+        "cost_ref": 1.6079043958439998,
+        "rel_cost_err": 0.0
       },
       "ortools": {
-        "error": "RuntimeError: OR-Tools SimpleMinCostFlow did not converge (status=Status.INFEASIBLE)"
+        "cost": 1.607904517,
+        "feasibility_a": 4.967576489045555e-10,
+        "feasibility_b": 1.0284163754967213e-09,
+        "cost_ref": 1.6079043958439998,
+        "rel_cost_err": 7.535025119308006e-08
       }
     },
     "32": {
       "lemon": {
-        "cost": 36.948982343004,
-        "cost_ref": 0.0,
-        "rel_cost_err": 3.694898234300399e+16,
-        "feasibility_a": 4.927540580429435e-13,
-        "feasibility_b": 2.6372523956319505e-12
+        "cost": 3.7942413325890003,
+        "feasibility_a": 4.950484466803573e-13,
+        "feasibility_b": 3.311935361377527e-12,
+        "cost_ref": 3.794239358,
+        "rel_cost_err": 5.204176157588286e-07
       },
       "ortools": {
-        "cost": 36.948979925,
-        "cost_ref": 0.0,
-        "rel_cost_err": 3.6948979925e+16,
-        "feasibility_a": 4.981431989993512e-10,
-        "feasibility_b": 5.292362747696955e-09
+        "cost": 3.794239358,
+        "feasibility_a": 8.235306237294737e-09,
+        "feasibility_b": 4.958429907983564e-10,
+        "cost_ref": 3.794239358,
+        "rel_cost_err": 0.0
       }
     },
     "200": {
       "lemon": {
-        "cost": 36.948982343004005,
-        "cost_ref": 36.65685892472067,
-        "rel_cost_err": 0.007969133931612709,
-        "feasibility_a": 4.927540580429435e-13,
-        "feasibility_b": 2.6372523956319505e-12
+        "cost": 0.460652039471,
+        "feasibility_a": 4.979549758643564e-13,
+        "feasibility_b": 1.0734061209327628e-12,
+        "cost_ref": 0.460652039471,
+        "rel_cost_err": 0.0
       },
       "ortools": {
-        "cost": 36.948979925,
-        "cost_ref": 36.65685892472067,
-        "rel_cost_err": 0.007969067968404938,
-        "feasibility_a": 4.981431989993512e-10,
-        "feasibility_b": 5.292362747696955e-09
+        "cost": 0.46065238499999994,
+        "feasibility_a": 4.984824428233559e-10,
+        "feasibility_b": 3.283926594196962e-09,
+        "cost_ref": 0.460652039471,
+        "rel_cost_err": 7.500867691032998e-07
+      },
+      "pot_reference": {
+        "cost": 0.4606520403141215,
+        "feasibility_a": 0.0,
+        "feasibility_b": 0.0,
+        "cost_ref": 0.460652039471,
+        "rel_cost_err": 1.8302784852858002e-09
       }
     }
   },
   "1000": {
     "4": {
       "lemon": {
-        "cost": 0.0,
-        "cost_ref": 0.0,
-        "rel_cost_err": 0.0,
-        "feasibility_a": 0.007975175004820883,
-        "feasibility_b": 0.007057705709240349
+        "cost": 0.649297388188,
+        "feasibility_a": 4.988654888488098e-13,
+        "feasibility_b": 4.99855799113158e-13,
+        "cost_ref": 0.649297388188,
+        "rel_cost_err": 0.0
       },
       "ortools": {
-        "error": "RuntimeError: OR-Tools SimpleMinCostFlow did not converge (status=Status.INFEASIBLE)"
+        "cost": 0.649303111,
+        "feasibility_a": 4.998900182684451e-10,
+        "feasibility_b": 6.284042139838124e-09,
+        "cost_ref": 0.649297388188,
+        "rel_cost_err": 8.81385341166208e-06
       }
     },
     "32": {
       "lemon": {
-        "cost": 0.0,
-        "cost_ref": 0.0,
-        "rel_cost_err": 0.0,
-        "feasibility_a": 0.007975175004820883,
-        "feasibility_b": 0.007057705709240349
+        "cost": 1.5719548167919999,
+        "feasibility_a": 4.999469805158641e-13,
+        "feasibility_b": 2.924862305478393e-11,
+        "cost_ref": 1.5719548167919999,
+        "rel_cost_err": 0.0
       },
       "ortools": {
-        "error": "RuntimeError: OR-Tools SimpleMinCostFlow did not converge (status=Status.INFEASIBLE)"
+        "cost": 1.57195492,
+        "feasibility_a": 5.820227078501966e-09,
+        "feasibility_b": 4.99810474908699e-10,
+        "cost_ref": 1.5719548167919999,
+        "rel_cost_err": 6.56558312259929e-08
       }
     },
     "100": {
       "lemon": {
-        "cost": 277.575617244104,
-        "cost_ref": 0.0,
-        "rel_cost_err": 2.77575617244104e+17,
-        "feasibility_a": 4.988402269381909e-13,
-        "feasibility_b": 3.058212428956597e-12
+        "cost": 18.783023008702997,
+        "feasibility_a": 4.988921602222529e-13,
+        "feasibility_b": 3.371736158504224e-12,
+        "cost_ref": 18.783023008702997,
+        "rel_cost_err": 0.0
       },
       "ortools": {
-        "cost": 277.575634394,
-        "cost_ref": 0.0,
-        "rel_cost_err": 2.77575634394e+17,
-        "feasibility_a": 1.865695118362376e-09,
-        "feasibility_b": 4.999734103290632e-10
+        "cost": 18.783000754,
+        "feasibility_a": 1.3087008645502017e-08,
+        "feasibility_b": 4.999911940636176e-10,
+        "excluded_from_reference": true,
+        "cost_ref": 18.783023008702997
       }
     },
     "1000": {
       "lemon": {
-        "cost": 277.57561724410397,
-        "cost_ref": 277.4753087142047,
-        "rel_cost_err": 0.0003615043456086261,
-        "feasibility_a": 4.988402269381909e-13,
-        "feasibility_b": 3.058212428956597e-12
+        "cost": 0.504145151636,
+        "feasibility_a": 4.988286259749453e-13,
+        "feasibility_b": 3.899335064908027e-12,
+        "cost_ref": 0.5035854126497887,
+        "rel_cost_err": 0.0011115075459911575
       },
       "ortools": {
-        "cost": 277.575634394,
-        "cost_ref": 277.4753087142047,
-        "rel_cost_err": 0.0003615661525352751,
-        "feasibility_a": 1.865695118362376e-09,
-        "feasibility_b": 4.999734103290632e-10
+        "cost": 0.503588928,
+        "feasibility_a": 1.3494100894627034e-08,
+        "feasibility_b": 4.996707362106556e-10,
+        "excluded_from_reference": true,
+        "cost_ref": 0.5035854126497887
+      },
+      "pot_reference": {
+        "cost": 0.5035854126497887,
+        "feasibility_a": 0.0,
+        "feasibility_b": 0.0,
+        "cost_ref": 0.5035854126497887,
+        "rel_cost_err": 0.0
       }
     }
   }

@@ -112,3 +112,46 @@ def test_generator_produces_feasible_instance(n, k):
     row_ptr = M_csr.indptr.astype(np.int32)
     col_idx = M_csr.indices.astype(np.int32)
     check_feasibility(a, b, row_ptr, col_idx)
+
+
+def test_compute_accuracy_cell_picks_min_cost_as_reference():
+    from benchmarks.bench_solvers import compute_accuracy_cell
+    raw = {
+        'lemon':   {'cost': 10.0, 'feasibility_a': 1e-13, 'feasibility_b': 1e-13},
+        'ortools': {'cost': 10.5, 'feasibility_a': 1e-10, 'feasibility_b': 1e-10},
+        'bonneel': {'error': 'skipped'},
+    }
+    out = compute_accuracy_cell(raw)
+    assert out['lemon']['cost_ref'] == 10.0
+    assert out['ortools']['cost_ref'] == 10.0
+    assert out['lemon']['rel_cost_err'] == 0.0
+    assert out['ortools']['rel_cost_err'] == pytest.approx(0.05, rel=1e-9)
+    assert out['bonneel'].get('error') == 'skipped'
+
+
+def test_compute_accuracy_cell_excludes_infeasible_from_reference():
+    from benchmarks.bench_solvers import compute_accuracy_cell
+    raw = {
+        'lemon':   {'cost': 10.0, 'feasibility_a': 1e-13, 'feasibility_b': 1e-13},
+        # ortools achieves a lower cost but is not primal-feasible — must be excluded.
+        'ortools': {'cost': 9.0,  'feasibility_a': 1e-3,  'feasibility_b': 1e-3},
+    }
+    out = compute_accuracy_cell(raw)
+    assert out['lemon']['cost_ref'] == 10.0
+    assert out['lemon']['rel_cost_err'] == 0.0
+    # ortools is excluded from the reference; its cost_ref should either
+    # not exist or carry the excluded marker.
+    assert out['ortools'].get('excluded_from_reference') is True
+
+
+def test_compute_accuracy_cell_no_feasible_solvers():
+    from benchmarks.bench_solvers import compute_accuracy_cell
+    raw = {
+        'lemon':   {'error': 'crashed'},
+        'ortools': {'cost': 9.0,  'feasibility_a': 1e-3,  'feasibility_b': 1e-3},
+    }
+    out = compute_accuracy_cell(raw)
+    # No reference can be derived. The function should not crash and should
+    # leave the entries as-is (or mark them as excluded).
+    assert 'cost_ref' not in out.get('lemon', {})
+    assert out['ortools'].get('cost_ref') is None or out['ortools'].get('excluded_from_reference') is True

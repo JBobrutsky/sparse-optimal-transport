@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+
+# scikit-build-core / CMake build artifacts
+_skbuild/
+CMakeFiles/
+*.cmake
+Makefile
+
+# Compiled extensions
+*.so
+*.pyd
+
+# pytest
+.pytest_cache/
+
+# macOS
+.DS_Store

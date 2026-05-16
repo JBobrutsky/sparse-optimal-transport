@@ -285,6 +285,8 @@ namespace lemon {
 
     // Data for scaling
     LargeCost _epsilon;
+    LargeCost _initial_max_cost;
+    double _tolerance;
     int _alpha;
 
     IntVector _buckets;
@@ -826,6 +828,8 @@ namespace lemon {
         }
       }
       _epsilon /= _alpha;
+      _initial_max_cost = _epsilon;
+      _tolerance = 1e-9;
 
       // Initialize maps for Circulation and remove non-zero lower bounds
       ConstMap<Arc, Value> low(0);
@@ -1361,8 +1365,8 @@ namespace lemon {
       BoolVector path_arc(_res_arc_num, false);
       int relabel_cnt = 0;
       int eps_phase_cnt = 0;
-      for ( ; _epsilon >= 1; _epsilon = _epsilon < _alpha && _epsilon > 1 ?
-                                        1 : _epsilon / _alpha )
+      for ( ; _epsilon >= _tolerance * _initial_max_cost; _epsilon = _epsilon < _alpha && _epsilon > _tolerance * _initial_max_cost ?
+                                        _tolerance * _initial_max_cost : _epsilon / _alpha )
       {
         ++eps_phase_cnt;
 
@@ -1487,8 +1491,8 @@ namespace lemon {
       LargeCostVector hyper_cost(_res_node_num);
       int relabel_cnt = 0;
       int eps_phase_cnt = 0;
-      for ( ; _epsilon >= 1; _epsilon = _epsilon < _alpha && _epsilon > 1 ?
-                                        1 : _epsilon / _alpha )
+      for ( ; _epsilon >= _tolerance * _initial_max_cost; _epsilon = _epsilon < _alpha && _epsilon > _tolerance * _initial_max_cost ?
+                                        _tolerance * _initial_max_cost : _epsilon / _alpha )
       {
         ++eps_phase_cnt;
 

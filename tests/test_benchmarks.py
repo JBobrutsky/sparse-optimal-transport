@@ -70,3 +70,23 @@ def test_bench_solvers_quick_smoke(tmp_path):
     assert result.returncode == 0, f"stderr: {result.stderr}"
     assert (repo_root / "benchmarks/results/efficiency_quick.json").exists()
     assert (repo_root / "benchmarks/results/accuracy_quick.json").exists()
+
+    import json
+    eff = json.loads((repo_root / "benchmarks/results/efficiency_quick.json").read_text())
+    acc = json.loads((repo_root / "benchmarks/results/accuracy_quick.json").read_text())
+
+    # Structure: dict[n_str] -> dict[k_str] -> dict[solver] -> result|None
+    assert "200" in eff and "1000" in eff
+    cell = eff["200"]["4"]   # smallest quick cell
+    assert set(cell.keys()) >= {"bonneel", "lemon", "ortools", "pot_reference"}
+
+    # At least bonneel and pot_reference should succeed on n=200 (small dense problem).
+    # LEMON is allowed to be None/error (known broken). OR-Tools may or may not be
+    # infeasible on k=4. Require Bonneel and POT to produce a wall_time_s.
+    bonneel = cell["bonneel"]
+    pot     = cell["pot_reference"]
+    assert isinstance(bonneel, dict) and bonneel.get("wall_time_s") is not None, bonneel
+    assert isinstance(pot, dict)     and pot.get("wall_time_s") is not None, pot
+
+    # Accuracy file should have same n/k structure.
+    assert "200" in acc and "1000" in acc

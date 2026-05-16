@@ -32,6 +32,7 @@ if _REPO_ROOT not in _sys.path:
     _sys.path.insert(0, _REPO_ROOT)
 
 from benchmarks.problems import generate_knn_grid_problem
+from sparse_ot import emd
 
 # --- Memory cutoffs (16 GB machine defaults) ---
 MAX_DENSE_N      = 8_192
@@ -77,6 +78,51 @@ def _lemon_call_worker(a, b, M_data, M_indices, M_indptr, shape, out_q):
         out_q.put(("err", f"{type(e).__name__}: {e}"))
 
 
+def _lemon_plan_worker(a, b, M_data, M_indices, M_indptr, shape, out_q):
+    """Run LEMON and return the transport plan as CSR triplets."""
+    try:
+        import scipy.sparse
+        from sparse_ot import emd
+        M = scipy.sparse.csr_matrix((M_data, M_indices, M_indptr), shape=shape)
+        G = emd(a, b, M, solver='lemon')
+        if scipy.sparse.issparse(G):
+            G_csr = G.tocsr()
+            out_q.put(("ok_sparse", G_csr.data, G_csr.indices, G_csr.indptr, G_csr.shape))
+        else:
+            # Dense numpy result; convert to sparse triplets for transport.
+            G_csr = scipy.sparse.csr_matrix(G)
+            out_q.put(("ok_dense", G_csr.data, G_csr.indices, G_csr.indptr, G_csr.shape))
+    except Exception as e:
+        out_q.put(("err", f"{type(e).__name__}: {e}"))
+
+
+def _run_lemon_for_plan(a, b, M):
+    """Run LEMON in a subprocess with a hard timeout; return (G_csr, None)
+    on success or (None, error_str) on failure/timeout."""
+    csr = M.tocsr()
+    args = (a, b, csr.data, csr.indices, csr.indptr, csr.shape)
+    ctx = mp.get_context("spawn")
+    q = ctx.Queue()
+    p = ctx.Process(target=_lemon_plan_worker, args=args + (q,))
+    p.start()
+    p.join(LEMON_TIMEOUT_S)
+    if p.is_alive():
+        p.terminate(); p.join(2.0)
+        if p.is_alive():
+            p.kill(); p.join()
+        return None, f"LEMON hung > {LEMON_TIMEOUT_S}s"
+    try:
+        result = q.get(timeout=1.0)
+    except Exception:
+        return None, "LEMON subprocess produced no output"
+    tag = result[0]
+    if tag == "err":
+        return None, result[1]
+    _, data, indices, indptr, shape = result
+    G = scipy.sparse.csr_matrix((data, indices, indptr), shape=shape)
+    return G, None
+
+
 def _time_lemon(a, b, M, n_runs: int) -> dict:
     """Time LEMON with a subprocess hard-timeout per run. Returns a dict
     with either wall_time_s + n_runs, or error."""
@@ -95,7 +141,7 @@ def _time_lemon(a, b, M, n_runs: int) -> dict:
                 p.kill(); p.join()
             return {"error": f"LEMON hung > {LEMON_TIMEOUT_S}s", "wall_time_s": None}
         try:
-            tag, val = q.get_nowait()
+            tag, val = q.get(timeout=1.0)
         except Exception:
             return {"error": "LEMON subprocess produced no output", "wall_time_s": None}
         if tag == "err":
@@ -180,20 +226,14 @@ def _accuracy_for_cell(solver: str, a, b, M, cost_ref):
     LEMON is wrapped in a subprocess hard-timeout (returns dict with 'error').
     """
     if solver == 'lemon':
-        # Reuse the timer but ignore the wall time; we just need to know it ran.
-        # Then re-run in-process for the plan extraction... but in-process can
-        # hang. Skip in-process re-run for LEMON: report error if timeout.
-        t = _time_lemon(a, b, M, n_runs=1)
-        if "error" in t:
-            return {"error": t["error"]}
-        # Re-run in-process to capture the plan; if it hangs here, the
-        # benchmark process itself will hang. Acceptable trade-off because
-        # _time_lemon already confirmed it can finish within LEMON_TIMEOUT_S.
-    from sparse_ot import emd
-    try:
-        G = emd(a, b, M, solver=solver)
-    except Exception as e:
-        return {"error": f"{type(e).__name__}: {e}"}
+        G, err = _run_lemon_for_plan(a, b, M)
+        if err is not None:
+            return {"error": err}
+    else:
+        try:
+            G = emd(a, b, M, solver=solver)
+        except Exception as e:
+            return {"error": f"{type(e).__name__}: {e}"}
 
     if scipy.sparse.issparse(G):
         cost = float(G.multiply(M).sum())

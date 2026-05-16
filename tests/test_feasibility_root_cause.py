@@ -7,7 +7,7 @@ from sparse_ot import emd
 
 @pytest.mark.parametrize("n,k", [(200, 4), (200, 20), (1000, 4), (1000, 32)])
 def test_band_graph_is_feasible(n, k):
-    a, b, M = generate_knn_grid_problem(n, k, seed=0)
+    a, b, M, _ = generate_knn_grid_problem(n, k, seed=0)
     # band k-NN on the same 1D grid is connected → feasible
     G = emd(a, b, M, solver='lemon')
     assert G.sum() == pytest.approx(1.0, abs=1e-9)

@@ -196,7 +196,7 @@ def run_efficiency_sweep(ns: list[int], base_ks: list[int], n_runs: int) -> dict
         for k in _k_grid(n, base_ks):
             results[str(n)][str(k)] = {}
             try:
-                a, b, M = generate_knn_grid_problem(n=n, k=k, seed=0)
+                a, b, M, _ = generate_knn_grid_problem(n=n, k=k, seed=0)
                 nnz = M.nnz
             except MemoryError:
                 for s in SOLVERS:
@@ -256,18 +256,45 @@ def _accuracy_for_cell(solver: str, a, b, M, cost_ref):
     }
 
 
-def run_accuracy_sweep(ns: list[int], base_ks: list[int]) -> dict:
+def _pot_reference_cost(a, b, M_csr) -> float:
+    """Run POT on the same restricted problem, encoding non-edges as a large
+    finite cost so POT can't route through them.
+
+    M_csr.toarray() encodes "no edge" as 0 — POT would route mass through
+    those free entries and report a meaningless underestimate. Replacing
+    non-edges with a value larger than the worst-case all-real-edges cost
+    forces POT to solve the actual k-NN restricted problem.
+    """
     import ot
+    coo = M_csr.tocoo()
+    edge_mask = np.zeros(M_csr.shape, dtype=bool)
+    edge_mask[coo.row, coo.col] = True
+    real_max = float(M_csr.data.max()) if M_csr.nnz else 1.0
+    # Big enough that routing a single unit through one non-edge costs more
+    # than the entire feasible plan; small enough to keep float64 precision.
+    big = real_max * (M_csr.shape[0] * M_csr.shape[1] + 1)
+    M_dense = np.where(edge_mask, M_csr.toarray(), big)
+    return float(ot.emd2(a, b, M_dense))
+
+
+def run_accuracy_sweep(ns: list[int], base_ks: list[int]) -> dict:
     results: dict = {}
     for n in ns:
         results[str(n)] = {}
         for k in _k_grid(n, base_ks):
             results[str(n)][str(k)] = {}
-            a, b, M = generate_knn_grid_problem(n=n, k=k, seed=0)
+            a, b, M, _ = generate_knn_grid_problem(n=n, k=k, seed=0)
             nnz = M.nnz
             cost_ref = None
             if n <= 64_000 and n <= MAX_DENSE_N:
-                cost_ref = float(ot.emd2(a, b, M.toarray()))
+                try:
+                    cost_ref = _pot_reference_cost(a, b, M)
+                except Exception as e:
+                    # POT may itself report infeasibility for sparse k-NN
+                    # graphs — that's a useful signal, not a benchmark error.
+                    cost_ref = None
+                    print(f"  acc n={n} k={k} pot_reference -> "
+                          f"infeasible/error: {type(e).__name__}: {e}", flush=True)
             for solver in ('lemon', 'ortools'):
                 if _solver_skipped(solver, n, nnz):
                     results[str(n)][str(k)][solver] = None

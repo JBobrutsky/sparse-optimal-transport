@@ -21,7 +21,9 @@ def to_csr(M, cost_sparsity_threshold=0.0):
     """
     if scipy.sparse.issparse(M):
         csr = M.tocsr().astype(np.float64)
-        csr.eliminate_zeros()
+        # Do NOT call eliminate_zeros() here: zero-cost edges (e.g. self-edges
+        # on a k-NN band with cost = (i-j)^2) are structurally required for
+        # feasibility.  Removing them can turn a feasible instance infeasible.
         n, m = csr.shape
         return (
             csr.indptr.astype(np.int32),

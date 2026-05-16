@@ -103,8 +103,14 @@ User calls emd(a, b, M)
     │
     ├─ sparse_utils.py
     │   dense M      → apply cost_sparsity_threshold → internal CSR (float64 costs, int32 indices)
-    │   scipy sparse → convert to CSR directly
+    │   scipy sparse → convert to CSR directly (preserves explicit zero costs)
     │   torch sparse → extract indices/values → CSR
+    │   Edge filtering (uniform across all input formats):
+    │     - drop entries with cost == +∞ or -∞ or NaN (the "absent edge" sentinels)
+    │     - drop entries with |cost| <= cost_sparsity_threshold (default 0.0; drops nothing)
+    │     - DO NOT call eliminate_zeros(): a stored 0 means a real edge with zero cost
+    │       (e.g. self-edges on a grid). Users who want to drop near-zero edges set
+    │       cost_sparsity_threshold > 0 explicitly.
     │   compute: nnz, sparsity_ratio = nnz / (n * m)
     │
     ├─ feasibility check (sparse path only)
@@ -231,7 +237,14 @@ Both thresholds are stored in `benchmarks/results/routing_thresholds.json` and d
 
 **Problem generator:** both distributions `a` and `b` are always fully dense (all n bins have positive mass, drawn from a Dirichlet distribution). Sparsity is controlled exclusively by `k` — the number of allowed neighbors per source node — so `nnz = k × n`. Problems are structured to match the reference use case: a regular grid in 1D/2D/3D where each source node connects to its `k` nearest neighbors in the target grid.
 
-**Feasibility guarantee.** Benchmark instances must be feasible by construction. Source and target use the **same** grid (n = m, coincident node coordinates), and the k-NN graph is built so each node's nearest neighbor is itself (`k ≥ 1` includes the self-edge `i → i` at distance 0). The identity backbone guarantees a trivial feasible flow (transport all mass `i → i`) for any Dirichlet marginals, regardless of `k`. The generator asserts every node has its self-edge present in the constructed CSR.
+**Feasibility guarantee (marginals-from-plan).** Benchmark instances must be feasible by construction. Independent Dirichlet draws `(a, b)` on a narrow `k`-NN band routinely violate Hall's condition: an identity backbone is *not* sufficient. Instead, the generator constructs `(a, b)` from a random feasible plan on the band itself:
+
+1. Build the `k`-NN band graph on the shared 1-D grid (`n = m`, source and target nodes coincident). Each source `i` connects to its `k` nearest indices; for `k ≥ 1` this includes the self-edge `i → i` with cost `0`.
+2. Sample edge weights `w_ij = exp(η_ij)` for each band edge, where `η_ij ~ N(0, 1)` are i.i.d. (strictly positive weights, full-support guarantee).
+3. Set `a[i] = Σ_j w_ij`, `b[j] = Σ_i w_ij`, then normalize `a /= W` and `b /= W` where `W = Σ_ij w_ij`. By construction `w / W` is a feasible (and full-support) transport plan from `a` to `b`, so the problem is feasible.
+4. The generator returns `(a, b, M, w_plan)` where `w_plan` is the witness plan; its cost `Σ_ij w_plan[i,j] · M[i,j]` is a guaranteed upper bound on the OT cost (useful as a sanity check during the accuracy sweep).
+
+The generator asserts every row has at least its self-edge present and that `a.sum() == b.sum()` bit-for-bit in float64 (achieved by normalizing both by the same `W`).
 
 User-supplied sparse cost matrices are *not* assumed feasible; the public API (§2/§3) validates feasibility and raises `InfeasibleProblemError` with a diagnostic message before calling any solver. The benchmark generator never triggers this path.
 

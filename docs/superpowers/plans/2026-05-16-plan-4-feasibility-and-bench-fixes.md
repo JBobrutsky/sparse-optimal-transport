@@ -436,7 +436,9 @@ git commit -m "feat(emd): raise InfeasibleProblemError before sparse solver disp
 
 ---
 
-## Task 5: Harden the benchmark problem generator
+## Task 5: Rewrite the benchmark problem generator (marginals-from-plan)
+
+> **Updated after Task 1 findings.** Independent Dirichlet `(a, b)` on a narrow k-NN band routinely violate Hall's condition — the identity backbone is *not* sufficient. New design (spec §6): construct `(a, b)` from a random feasible plan on the band, so the witness plan itself proves feasibility.
 
 **Files:**
 - Modify: `benchmarks/problems.py`
@@ -448,21 +450,28 @@ git commit -m "feat(emd): raise InfeasibleProblemError before sparse solver disp
 # tests/test_benchmarks.py (append)
 import numpy as np
 import pytest
+import scipy.sparse
 from benchmarks.problems import generate_knn_grid_problem
 from sparse_ot.feasibility import check_feasibility
 
 
 @pytest.mark.parametrize("n,k", [(50, 1), (50, 2), (200, 4), (1000, 8)])
 def test_generator_produces_feasible_instance(n, k):
-    a, b, M = generate_knn_grid_problem(n, k, seed=0)
-    # Self-edge required at every row.
+    a, b, M, w_plan = generate_knn_grid_problem(n, k, seed=0)
     M_csr = M.tocsr()
+    # Self-edge required at every row.
     for i in range(n):
         cols_i = M_csr.indices[M_csr.indptr[i]:M_csr.indptr[i + 1]]
         assert i in cols_i, f"row {i} missing self-edge"
     # Float-exact marginal balance.
     assert a.sum() == b.sum(), f"sum(a)={a.sum()!r} sum(b)={b.sum()!r}"
-    # And feasibility check passes.
+    # Full-support marginals.
+    assert (a > 0).all() and (b > 0).all()
+    # Witness plan is feasible: row sums == a, col sums == b.
+    w_csr = w_plan.tocsr()
+    assert np.allclose(np.asarray(w_csr.sum(axis=1)).ravel(), a, atol=1e-12)
+    assert np.allclose(np.asarray(w_csr.sum(axis=0)).ravel(), b, atol=1e-12)
+    # Union-find feasibility check passes.
     row_ptr = M_csr.indptr.astype(np.int32)
     col_idx = M_csr.indices.astype(np.int32)
     check_feasibility(a, b, row_ptr, col_idx)
@@ -474,34 +483,36 @@ def test_generator_produces_feasible_instance(n, k):
 pytest tests/test_benchmarks.py::test_generator_produces_feasible_instance -v
 ```
 
-Expected: failures on either the self-edge assertion (for k=1 corner cases) or on `a.sum() == b.sum()` (Dirichlet draws are float-normalized but not exactly equal across two independent draws).
+Expected: failures (the current generator returns only 3-tuples, marginals are independent Dirichlet draws so Hall-violating).
 
-- [ ] **Step 3: Update the generator to guarantee the contract**
+- [ ] **Step 3: Rewrite the generator (marginals-from-plan)**
 
 ```python
 # benchmarks/problems.py — replace function body
 def generate_knn_grid_problem(
     n: int, k: int, seed: int = 0
-) -> tuple[np.ndarray, np.ndarray, scipy.sparse.csr_matrix]:
-    """Return (a, b, M) with a feasible-by-construction sparse support.
+) -> tuple[np.ndarray, np.ndarray, scipy.sparse.csr_matrix, scipy.sparse.csr_matrix]:
+    """Return (a, b, M, w_plan) — feasible-by-construction sparse OT instance.
 
-    Each source i connects to its k nearest target indices on the shared 1D grid;
-    when k >= 1 this always includes the self-edge (i, i). Marginals are
-    Dirichlet draws normalized so sum(a) == sum(b) exactly in float64.
+    Construction (spec §6):
+      1. Build the k-NN band on a shared 1D grid (n = m, coincident nodes).
+         Each source i connects to its k nearest indices; for k >= 1 this
+         always includes the self-edge (i, i) with cost 0.
+      2. Sample edge weights w_ij = exp(N(0,1)) on each band edge (strictly
+         positive, full-support).
+      3. a[i] = sum_j w_ij,  b[j] = sum_i w_ij, then a /= W and b /= W with
+         W = sum_ij w_ij. By construction w / W is a feasible plan from
+         a to b, so the problem is feasible.
+
+    The witness plan w_plan (returned as a fourth CSR) carries the feasibility
+    witness; its cost is an upper bound on the optimal OT cost.
     """
     if k < 1:
         raise ValueError("k must be >= 1 to include the self-edge")
     rng = np.random.default_rng(seed)
-    a = rng.dirichlet(np.ones(n))
-    b = rng.dirichlet(np.ones(n))
-    # Force float-exact balance: rescale b to match a.sum() bit-for-bit.
-    a = a / a.sum()
-    b = b / b.sum()
-    b *= a.sum() / b.sum()
-    assert a.sum() == b.sum()
 
     half = k // 2
-    rows, cols, data = [], [], []
+    rows, cols, costs = [], [], []
     for i in range(n):
         lo = max(0, i - half)
         hi = min(n, lo + k)
@@ -510,79 +521,237 @@ def generate_knn_grid_problem(
         for j in range(lo, hi):
             rows.append(i)
             cols.append(j)
-            data.append(float((i - j) ** 2))
+            costs.append(float((i - j) ** 2))
+
+    rows = np.asarray(rows, dtype=np.int32)
+    cols = np.asarray(cols, dtype=np.int32)
+    costs = np.asarray(costs, dtype=np.float64)
+    nnz = costs.size
+
+    # Edge weights w_ij = exp(N(0,1)); strictly positive ⇒ full-support marginals.
+    log_w = rng.standard_normal(nnz)
+    w = np.exp(log_w)
+    W = w.sum()
+    w /= W  # w is now a valid joint distribution; row/col sums are a, b.
+
+    a = np.zeros(n, dtype=np.float64)
+    b = np.zeros(n, dtype=np.float64)
+    np.add.at(a, rows, w)
+    np.add.at(b, cols, w)
+    # a.sum() and b.sum() both equal w.sum() = 1.0 in exact arithmetic;
+    # numpy's Kahan-free reductions may differ by a few ULP. Force bit-equality
+    # by renormalizing both with the larger denominator and asserting.
+    s = max(a.sum(), b.sum())
+    a /= s
+    b /= s
+    assert a.sum() == b.sum(), f"a.sum()={a.sum()!r}, b.sum()={b.sum()!r}"
 
     M = scipy.sparse.csr_matrix(
-        (np.asarray(data, dtype=np.float64),
-         (np.asarray(rows, dtype=np.int32),
-          np.asarray(cols, dtype=np.int32))),
-        shape=(n, n),
+        (costs, (rows, cols)), shape=(n, n)
     )
-    return a, b, M
+    w_plan = scipy.sparse.csr_matrix(
+        (w / s, (rows, cols)), shape=(n, n)
+    )
+    return a, b, M, w_plan
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Update any callers of generate_knn_grid_problem**
+
+The function now returns a 4-tuple `(a, b, M, w_plan)` instead of 3-tuple. Search for callers and update:
+
+```bash
+grep -rn "generate_knn_grid_problem" --include="*.py" /Users/jonatanbobrutsky-haim/Documents/Code/sparse-optimal-transport
+```
+
+Update each call site to unpack 4 values (use `_` for `w_plan` where not needed), including the Task 1 reproducer at `tests/test_feasibility_root_cause.py`. After updating that reproducer, **re-run it** — it should now PASS (the new generator produces feasible problems). The reproducer's job is done; Task 6 will delete it.
+
+- [ ] **Step 5: Run tests to verify they pass**
 
 ```bash
 pytest tests/test_benchmarks.py -v
+pytest tests/test_feasibility_root_cause.py -v
 ```
 
-Expected: PASS.
+Expected: both PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add benchmarks/problems.py tests/test_benchmarks.py
-git commit -m "fix(bench): feasibility-by-construction generator; float-exact marginals"
+git add benchmarks/problems.py tests/test_benchmarks.py tests/test_feasibility_root_cause.py
+# plus any updated callers
+git commit -m "fix(bench): marginals-from-plan generator; feasible by construction (spec §6)
+
+Previous generator drew (a, b) independent Dirichlet, which violates Hall's
+condition on narrow k-NN bands. New design samples a random plan w on the
+band edges and sets a, b as its row/col sums — feasibility is then a
+construction property, not a check."
 ```
 
 ---
 
-## Task 6: Land the solver-side fix identified in Task 1
+## Task 6: Fix `to_csr` edge semantics + drop temp reproducer
 
-> This task's exact content depends on the root cause from Task 1. The three most likely candidates are listed below — implement the one that matches. Delete `tests/test_feasibility_root_cause.py` once the regression is covered by Task 5's tests.
+> **Repurposed after Task 1 findings.** No solver-side bug exists — LEMON and OR-Tools correctly reported INFEASIBLE. But Task 1's secondary finding stands: `sparse_utils.to_csr()` calls `csr.eliminate_zeros()`, which silently drops zero-cost edges (e.g. the self-edges on a band grid). This task fixes the wrapper semantics per spec §3:
+> - explicit zero entries are **kept** as real free edges (`cost = 0`),
+> - `±∞` and `NaN` entries are **dropped** (the conventional "absent edge" sentinel),
+> - `cost_sparsity_threshold > 0` still drops `|cost| ≤ threshold`.
 
-- [ ] **Step 1: Re-run the reproducer to confirm it still fails on `main`**
+**Files:**
+- Modify: `src/sparse_ot/sparse_utils.py`
+- Test: `tests/test_sparse_utils.py`
+- Delete: `tests/test_feasibility_root_cause.py` (now covered by Task 5's tests)
 
-```bash
-pytest tests/test_feasibility_root_cause.py -v
-```
-
-Expected: FAIL (same error as Task 1 step 2).
-
-- [ ] **Step 2: Apply the fix matching the Task 1 hypothesis**
-
-**If hypothesis was "marginals not float-exact":** the generator fix in Task 5 already resolves it for the bench path. Audit `src/sparse_ot/emd.py:51-52` (the `a / a.sum()` step) — confirm it produces float-exact sums in the user path or replace with the same rescaling pattern as Task 5 step 3.
-
-**If hypothesis was "LEMON epsilon condition still integer":** fix `src/cpp/lemon_solver.cpp` per spec §4 — replace `epsilon < 1` with `epsilon < _tolerance * _initial_max_cost`, `_tolerance = 1e-9`. Rebuild the extension:
-```bash
-pip install -e . --no-build-isolation
-```
-
-**If hypothesis was "OR-Tools int64 supply scaling drifts":** fix `src/sparse_ot/ortools_solver.py` — after scaling supplies to int64, redistribute the rounding residual (largest fractional remainder) so int_supply.sum() == int_demand.sum() exactly.
-
-- [ ] **Step 3: Run the reproducer and the full bench-feasibility suite**
+- [ ] **Step 1: Locate the current eliminate_zeros call**
 
 ```bash
-pytest tests/test_feasibility_root_cause.py tests/test_benchmarks.py -v
+grep -n "eliminate_zeros\|cost_sparsity_threshold" src/sparse_ot/sparse_utils.py
 ```
 
-Expected: PASS.
+Note the function name and line range of `to_csr`.
 
-- [ ] **Step 4: Delete the temporary reproducer**
+- [ ] **Step 2: Write the failing tests**
+
+```python
+# tests/test_sparse_utils.py (append)
+import numpy as np
+import scipy.sparse
+from sparse_ot.sparse_utils import to_csr
+
+
+def test_to_csr_preserves_explicit_zero_costs():
+    # 3-node band with a real free self-edge at (0, 0).
+    rows = np.array([0, 0, 1, 2], dtype=np.int32)
+    cols = np.array([0, 1, 1, 2], dtype=np.int32)
+    data = np.array([0.0, 1.0, 1.0, 1.0], dtype=np.float64)
+    M = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(3, 3))
+    row_ptr, col_idx, costs, n, m, nnz = to_csr(M, 0.0)
+    assert nnz == 4, f"expected 4 stored edges, got {nnz}"
+    # Edge (0, 0) must still be present.
+    cols_of_0 = col_idx[row_ptr[0]:row_ptr[1]]
+    assert 0 in cols_of_0
+
+
+def test_to_csr_drops_positive_infinity_costs():
+    rows = np.array([0, 0, 1], dtype=np.int32)
+    cols = np.array([0, 1, 1], dtype=np.int32)
+    data = np.array([0.5, np.inf, 0.7], dtype=np.float64)
+    M = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(2, 2))
+    row_ptr, col_idx, costs, n, m, nnz = to_csr(M, 0.0)
+    assert nnz == 2
+    assert np.isfinite(costs).all()
+    assert np.isinf(costs).sum() == 0
+
+
+def test_to_csr_drops_negative_infinity_and_nan():
+    rows = np.array([0, 0, 1], dtype=np.int32)
+    cols = np.array([0, 1, 1], dtype=np.int32)
+    data = np.array([-np.inf, np.nan, 0.7], dtype=np.float64)
+    M = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(2, 2))
+    row_ptr, col_idx, costs, n, m, nnz = to_csr(M, 0.0)
+    assert nnz == 1
+    assert costs[0] == 0.7
+
+
+def test_to_csr_threshold_still_drops_small_costs():
+    rows = np.array([0, 0, 1], dtype=np.int32)
+    cols = np.array([0, 1, 1], dtype=np.int32)
+    data = np.array([0.0, 0.05, 1.0], dtype=np.float64)
+    M = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(2, 2))
+    # Threshold 0.1 drops the 0.05 edge AND the explicit 0.0 edge.
+    row_ptr, col_idx, costs, n, m, nnz = to_csr(M, 0.1)
+    assert nnz == 1
+    assert costs[0] == 1.0
+```
+
+- [ ] **Step 3: Run to verify failure**
+
+```bash
+pytest tests/test_sparse_utils.py -v
+```
+
+Expected: at minimum `test_to_csr_preserves_explicit_zero_costs` fails (eliminate_zeros drops the (0,0) edge) and the infinity-drop tests fail (`±∞` survives into `costs`).
+
+- [ ] **Step 4: Update `to_csr` per spec §3**
+
+Replace the body of `to_csr` so that:
+
+```python
+# src/sparse_ot/sparse_utils.py — adjust to_csr
+def to_csr(M, cost_sparsity_threshold: float = 0.0):
+    """Normalize input M to internal CSR (row_ptr, col_idx, costs, n, m, nnz).
+
+    Edge semantics (spec §3):
+    - explicit zero entries are kept (real free edges);
+    - non-finite entries (±inf, NaN) are dropped (conventional "no edge");
+    - entries with |cost| <= cost_sparsity_threshold are dropped
+      (default threshold 0.0 drops nothing).
+    """
+    if scipy.sparse.issparse(M):
+        coo = M.tocoo(copy=False)
+        rows = coo.row.astype(np.int32, copy=False)
+        cols = coo.col.astype(np.int32, copy=False)
+        data = coo.data.astype(np.float64, copy=False)
+        n, m = coo.shape
+    else:
+        arr = np.asarray(M, dtype=np.float64, order='C')
+        n, m = arr.shape
+        # Materialize all (i, j) cells; keep those that pass the filter below.
+        ri, ci = np.indices(arr.shape)
+        rows = ri.ravel().astype(np.int32)
+        cols = ci.ravel().astype(np.int32)
+        data = arr.ravel()
+
+    finite = np.isfinite(data)
+    above_thresh = np.abs(data) > cost_sparsity_threshold
+    keep = finite & above_thresh
+    rows = rows[keep]
+    cols = cols[keep]
+    data = data[keep]
+
+    # Sort by row, then col, to build CSR indptr without scipy's eliminate_zeros.
+    order = np.lexsort((cols, rows))
+    rows = rows[order]
+    cols = cols[order]
+    data = data[order]
+
+    row_ptr = np.zeros(n + 1, dtype=np.int32)
+    np.add.at(row_ptr, rows + 1, 1)
+    np.cumsum(row_ptr, out=row_ptr)
+
+    return row_ptr, cols.astype(np.int32, copy=False), data, n, m, int(data.size)
+```
+
+Adjust to match the existing file's style (the surrounding imports, helper functions, etc.).
+
+- [ ] **Step 5: Run sparse_utils tests + the broader suite**
+
+```bash
+pytest tests/test_sparse_utils.py -v
+pytest tests/test_emd.py tests/test_benchmarks.py tests/test_lemon_accuracy.py -v
+```
+
+Expected: all PASS. If any prior test now fails (e.g. it relied on eliminate_zeros behavior), investigate — most likely the test was masking the bug.
+
+- [ ] **Step 6: Delete the temp reproducer**
 
 ```bash
 git rm tests/test_feasibility_root_cause.py
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add -u
-git commit -m "fix(<solver>): <one-line root cause from Task 1>
+git add src/sparse_ot/sparse_utils.py tests/test_sparse_utils.py
+git rm tests/test_feasibility_root_cause.py
+git commit -m "fix(sparse_utils): keep explicit zero costs; drop only non-finite entries
 
-Sparse band-graph instances that should be feasible were rejected as
-INFEASIBLE. Root cause: <details>. Coverage moved to test_benchmarks.py."
+Previous to_csr() called eliminate_zeros(), silently removing zero-cost
+self-edges from band-graph cost matrices and breaking feasibility. New
+semantics per spec §3:
+ - explicit 0 is a real free edge,
+ - ±inf and NaN are the absent-edge sentinel and are dropped,
+ - cost_sparsity_threshold > 0 still drops |cost| <= threshold.
+Task 1 reproducer covered by tests/test_benchmarks.py and deleted."
 ```
 
 ---

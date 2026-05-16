@@ -3,6 +3,7 @@ import pytest
 import ot
 
 import sparse_ot
+from sparse_ot import emd
 
 
 def _problem(n, m, seed=0):
@@ -200,3 +201,29 @@ def test_emd_ortools_cost_scale_passes_through():
     cost_higher  = sparse_ot.emd2(a, b, M, solver='ortools',
                                    ortools_cost_scale=1e9)
     assert np.isfinite(cost_default) and np.isfinite(cost_higher)
+
+
+import scipy.sparse
+from sparse_ot.feasibility import InfeasibleProblemError
+
+
+def test_emd_raises_on_infeasible_sparse_support():
+    # Singleton components: source 0 has 0.5 mass, but only edge (0,0) exists
+    # and target 0 has only 0.1 mass demand. Imbalanced component → infeasible.
+    rows = [0, 1, 1, 2, 2]
+    cols = [0, 1, 2, 1, 2]
+    data = [1.0] * 5
+    M = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(3, 3))
+    a = np.array([0.5, 0.25, 0.25])
+    b = np.array([0.1, 0.45, 0.45])
+    with pytest.raises(InfeasibleProblemError):
+        emd(a, b, M, solver='lemon')
+
+
+def test_emd_skips_check_for_dense_M():
+    # Dense M (numpy ndarray) — feasibility check is skipped for dense input.
+    # Use a fully non-zero cost matrix so no edges are dropped by to_csr.
+    a = np.array([0.5, 0.5])
+    b = np.array([0.3, 0.7])
+    M = np.array([[0.5, 1.0], [1.0, 0.5]])
+    emd(a, b, M)  # must not raise

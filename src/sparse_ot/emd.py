@@ -53,6 +53,12 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
 
     selected = select_solver(n, m, nnz, solver)
 
+    # Feasibility check (spec §2/§3): sparse-input paths only, skipped when
+    # Bonneel is selected (Bonneel solves on dense M and rejects infeasibility itself).
+    if not dense_input and selected != 'bonneel':
+        from sparse_ot.feasibility import check_feasibility
+        check_feasibility(a, b, row_ptr, col_idx)
+
     if selected == 'bonneel':
         if dense_input:
             M_dense = np.asarray(M, dtype=np.float64, order='C')

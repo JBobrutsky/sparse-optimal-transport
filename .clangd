@@ -1,0 +1,6 @@
+CompileFlags:
+  Add:
+    - "-I/Users/jonatanbobrutsky-haim/Documents/Code/sparse-optimal-transport/.venv/lib/python3.12/site-packages/pybind11/include"
+    - "-I/Users/jonatanbobrutsky-haim/.local/share/uv/python/cpython-3.12.8-macos-aarch64-none/include/python3.12"
+    - "-Isrc/cpp"
+    - "-std=c++17"

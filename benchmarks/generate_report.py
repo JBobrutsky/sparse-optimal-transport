@@ -24,12 +24,26 @@ FIGURES_DIR = RESULTS_DIR / "figures"
 DEFAULT_THRESHOLDS = {"bonneel_lemon": 128, "lemon_ortools": 1_000_000}
 
 
-def _load(name: str, quick: bool) -> dict | None:
-    fname = name.replace(".json", "_quick.json") if quick else name
+def _load(name: str, quick: bool, mid: bool = False) -> dict | None:
+    if quick:
+        fname = name.replace(".json", "_quick.json")
+    elif mid:
+        fname = name.replace(".json", "_mid.json")
+    else:
+        fname = name
     p = RESULTS_DIR / fname
     if not p.exists():
         return None
     return json.loads(p.read_text())
+
+
+def _load_best_efficiency() -> tuple[dict | None, str]:
+    """Load the best available efficiency JSON (full > mid > quick)."""
+    for suffix, label in [("", "full"), ("_mid", "mid"), ("_quick", "quick")]:
+        p = RESULTS_DIR / f"efficiency{suffix}.json"
+        if p.exists():
+            return json.loads(p.read_text()), label
+    return None, "none"
 
 
 def _grid(data: dict, solver: str, field: str) -> tuple[list[int], list[int], np.ndarray]:
@@ -165,65 +179,58 @@ def render_accuracy_plot(acc: dict) -> None:
 
 
 def derive_thresholds(eff: dict) -> dict:
-    """Find crossover k where LEMON beats Bonneel; and the n where OR-Tools beats LEMON.
+    """Derive routing thresholds from an efficiency sweep.
 
-    Falls back to DEFAULT_THRESHOLDS when data is too sparse to decide.
+    Returns
+    -------
+    dict with two keys:
+      bonneel_lemon : smallest k at which bonneel beats lemon (any n where
+        both ran); falls back to 128 if no crossover is observed.
+      lemon_ortools : smallest n at which ortools beats lemon for at least
+        one k (both must have a non-null wall_time_s); falls back to 1_000_000.
     """
-    bonneel_lemon = DEFAULT_THRESHOLDS["bonneel_lemon"]
-    lemon_ortools = DEFAULT_THRESHOLDS["lemon_ortools"]
+    bonneel_lemon = None
+    for n_str in sorted(eff, key=int):
+        by_k = eff[n_str]
+        for k_str, by_s in sorted(by_k.items(), key=lambda kv: int(kv[0])):
+            wb = (by_s.get('bonneel') or {}).get('wall_time_s')
+            wl = (by_s.get('lemon') or {}).get('wall_time_s')
+            if wb is not None and wl is not None and wb < wl:
+                k = int(k_str)
+                bonneel_lemon = k if bonneel_lemon is None else min(bonneel_lemon, k)
+                break
 
-    ks_set: set[int] = set()
-    for n_str in eff:
-        ks_set.update(int(k) for k in eff[n_str])
-    ks_sorted = sorted(ks_set)
-    for k in ks_sorted:
-        votes_lemon_wins = 0
-        votes_total = 0
-        for n_str, by_k in eff.items():
-            cell = by_k.get(str(k), {})
-            l = cell.get("lemon"); b = cell.get("bonneel")
-            if (isinstance(l, dict) and isinstance(b, dict)
-                and "error" not in l and "error" not in b
-                and l.get("wall_time_s") is not None
-                and b.get("wall_time_s") is not None):
-                votes_total += 1
-                if l["wall_time_s"] < b["wall_time_s"]:
-                    votes_lemon_wins += 1
-        if votes_total >= 3 and votes_lemon_wins / votes_total >= 0.7:
-            bonneel_lemon = k
-            break
+    lemon_ortools = None
+    for n_str in sorted(eff, key=int):
+        by_k = eff[n_str]
+        crossed = False
+        for k_str, by_s in by_k.items():
+            wl = (by_s.get('lemon') or {}).get('wall_time_s')
+            wo = (by_s.get('ortools') or {}).get('wall_time_s')
+            if wl is not None and wo is not None and wo < wl:
+                crossed = True
+                break
+        if crossed:
+            n = int(n_str)
+            lemon_ortools = n if lemon_ortools is None else min(lemon_ortools, n)
 
-    small_k_candidates = [k for k in ks_sorted if k <= 32]
-    ns_sorted = sorted(int(n) for n in eff.keys())
-    for n in ns_sorted:
-        wins = 0; total = 0
-        for k in small_k_candidates:
-            cell = eff.get(str(n), {}).get(str(k), {})
-            l = cell.get("lemon"); o = cell.get("ortools")
-            if (isinstance(l, dict) and isinstance(o, dict)
-                and "error" not in l and "error" not in o
-                and l.get("wall_time_s") is not None
-                and o.get("wall_time_s") is not None):
-                total += 1
-                if o["wall_time_s"] < l["wall_time_s"]:
-                    wins += 1
-        if total >= 3 and wins / total >= 0.7:
-            lemon_ortools = n
-            break
-
-    return {"bonneel_lemon": int(bonneel_lemon),
-            "lemon_ortools": int(lemon_ortools)}
+    return {
+        'bonneel_lemon': bonneel_lemon if bonneel_lemon is not None else 128,
+        'lemon_ortools': lemon_ortools if lemon_ortools is not None else 1_000_000,
+    }
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true",
                     help="Use *_quick.json files instead of full results")
+    ap.add_argument("--mid", action="store_true",
+                    help="Use *_mid.json files (mid sweep)")
     args = ap.parse_args()
 
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-    eff = _load("efficiency.json", args.quick)
-    acc = _load("accuracy.json",   args.quick)
+    eff = _load("efficiency.json", args.quick, args.mid)
+    acc = _load("accuracy.json",   args.quick, args.mid)
     if eff is None:
         print("error: no efficiency JSON found; run bench_solvers.py first",
               file=sys.stderr)
@@ -238,10 +245,16 @@ def main():
               file=sys.stderr)
 
     if args.quick:
-        print("skipping threshold derivation (--quick): use full sweep to "
+        print("skipping threshold derivation (--quick): use --mid or full sweep to "
               "update routing_thresholds.json", file=sys.stderr)
     else:
-        thresholds = derive_thresholds(eff)
+        # For threshold derivation, use the best available data (full > mid > quick).
+        eff_for_thresh, label = _load_best_efficiency()
+        if eff_for_thresh is None:
+            eff_for_thresh = eff
+            label = "current"
+        print(f"deriving thresholds from {label} efficiency data", file=sys.stderr)
+        thresholds = derive_thresholds(eff_for_thresh)
         out = RESULTS_DIR / "routing_thresholds.json"
         out.write_text(json.dumps(thresholds, indent=2) + "\n")
         print(f"wrote {out}: {thresholds}")

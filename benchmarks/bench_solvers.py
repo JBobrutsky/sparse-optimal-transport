@@ -49,6 +49,9 @@ FULL_K = [2, 8, 32, 128, 512, 2048]
 QUICK_N = [200, 1_000]
 QUICK_K = [4, 32]
 
+MID_N = [200, 1_000, 4_000, 16_000]  # spec grid; see --mid notes in main()
+MID_K = [2, 8, 32, 128, 512]
+
 SOLVERS = ['bonneel', 'lemon', 'ortools', 'pot_reference']
 
 RESULTS_DIR = Path(__file__).parent / "results"
@@ -182,18 +185,20 @@ def _time_solver(solver: str, a, b, M, n_runs: int) -> dict:
     }
 
 
-def _k_grid(n: int, base_ks: list[int]) -> list[int]:
+def _k_grid(n: int, base_ks: list[int], add_dense: bool = True) -> list[int]:
     ks = set(base_ks)
     ks.add(max(2, n // 10))
-    ks.add(n)
+    if add_dense:
+        ks.add(n)
     return sorted(k for k in ks if k <= n)
 
 
-def run_efficiency_sweep(ns: list[int], base_ks: list[int], n_runs: int) -> dict:
+def run_efficiency_sweep(ns: list[int], base_ks: list[int], n_runs: int,
+                         add_dense: bool = True) -> dict:
     results: dict = {}
     for n in ns:
         results[str(n)] = {}
-        for k in _k_grid(n, base_ks):
+        for k in _k_grid(n, base_ks, add_dense=add_dense):
             results[str(n)][str(k)] = {}
             try:
                 a, b, M, _ = generate_knn_grid_problem(n=n, k=k, seed=0)
@@ -322,11 +327,12 @@ def _pot_reference_cost(a, b, M_csr) -> float:
     return float(ot.emd2(a, b, M_dense))
 
 
-def run_accuracy_sweep(ns: list[int], base_ks: list[int]) -> dict:
+def run_accuracy_sweep(ns: list[int], base_ks: list[int],
+                       add_dense: bool = True) -> dict:
     results: dict = {}
     for n in ns:
         results[str(n)] = {}
-        for k in _k_grid(n, base_ks):
+        for k in _k_grid(n, base_ks, add_dense=add_dense):
             results[str(n)][str(k)] = {}
             a, b, M, _ = generate_knn_grid_problem(n=n, k=k, seed=0)
             nnz = M.nnz
@@ -359,28 +365,38 @@ def run_accuracy_sweep(ns: list[int], base_ks: list[int]) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true")
+    ap.add_argument("--mid",   action="store_true",
+                    help="Mid sweep: n∈{200,1K,4K,16K}, k∈{2,8,32,128,512} + n//10 + n")
     ap.add_argument("--efficiency-only", action="store_true")
     ap.add_argument("--accuracy-only",   action="store_true")
     args = ap.parse_args()
 
     if args.quick:
-        ns, base_ks, n_runs = QUICK_N, QUICK_K, 1
+        ns, base_ks, n_runs, tag, add_dense = QUICK_N, QUICK_K, 1, "quick", True
+    elif args.mid:
+        # Mid sweep: skip k=n (dense) cells to avoid multi-minute OR-Tools runs
+        # at large n. n_runs=1 for speed.
+        ns, base_ks, n_runs, tag, add_dense = MID_N, MID_K, 1, "mid", False
     else:
-        ns, base_ks, n_runs = FULL_N, FULL_K, 5
+        ns, base_ks, n_runs, tag, add_dense = FULL_N, FULL_K, 5, None, True
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
+    eff_name = f"efficiency_{tag}.json" if tag else "efficiency.json"
+    acc_name = f"accuracy_{tag}.json"   if tag else "accuracy.json"
+
     if not args.accuracy_only:
-        print(f"[efficiency] ns={ns} ks={base_ks} n_runs={n_runs}", flush=True)
-        eff = run_efficiency_sweep(ns, base_ks, n_runs)
-        out = RESULTS_DIR / ("efficiency_quick.json" if args.quick else "efficiency.json")
+        print(f"[efficiency] ns={ns} ks={base_ks} n_runs={n_runs} "
+              f"add_dense={add_dense}", flush=True)
+        eff = run_efficiency_sweep(ns, base_ks, n_runs, add_dense=add_dense)
+        out = RESULTS_DIR / eff_name
         out.write_text(json.dumps(eff, indent=2))
         print(f"[efficiency] wrote {out}", flush=True)
 
     if not args.efficiency_only:
-        print(f"[accuracy] ns={ns} ks={base_ks}", flush=True)
-        acc = run_accuracy_sweep(ns, base_ks)
-        out = RESULTS_DIR / ("accuracy_quick.json" if args.quick else "accuracy.json")
+        print(f"[accuracy] ns={ns} ks={base_ks} add_dense={add_dense}", flush=True)
+        acc = run_accuracy_sweep(ns, base_ks, add_dense=add_dense)
+        out = RESULTS_DIR / acc_name
         out.write_text(json.dumps(acc, indent=2))
         print(f"[accuracy] wrote {out}", flush=True)
 

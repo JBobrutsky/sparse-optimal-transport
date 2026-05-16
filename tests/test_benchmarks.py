@@ -155,3 +155,30 @@ def test_compute_accuracy_cell_no_feasible_solvers():
     # leave the entries as-is (or mark them as excluded).
     assert 'cost_ref' not in out.get('lemon', {})
     assert out['ortools'].get('cost_ref') is None or out['ortools'].get('excluded_from_reference') is True
+
+
+def test_derive_thresholds_picks_crossover():
+    from benchmarks.generate_report import derive_thresholds
+    # Synthetic efficiency data: bonneel wins at k>=64 at n=1000; lemon wins below.
+    # At n=1000000, ortools beats lemon at every k where both ran.
+    eff = {
+        '1000': {
+            '4':  {'bonneel': {'wall_time_s': 2.0},
+                   'lemon':   {'wall_time_s': 0.5},
+                   'ortools': {'wall_time_s': 1.0}},
+            '64': {'bonneel': {'wall_time_s': 0.4},
+                   'lemon':   {'wall_time_s': 0.5},
+                   'ortools': {'wall_time_s': 0.7}},
+        },
+        '1000000': {
+            '4':  {'bonneel': {'wall_time_s': None},
+                   'lemon':   {'wall_time_s': 60.0},
+                   'ortools': {'wall_time_s': 30.0}},
+            '64': {'bonneel': {'wall_time_s': None},
+                   'lemon':   {'wall_time_s': 40.0},
+                   'ortools': {'wall_time_s': 50.0}},
+        },
+    }
+    out = derive_thresholds(eff)
+    assert 4 <= out['bonneel_lemon'] <= 64
+    assert 1000 <= out['lemon_ortools'] <= 1000000

@@ -1,0 +1,102 @@
+{
+  "200": {
+    "4": {
+      "lemon": {
+        "cost": 0.0,
+        "cost_ref": 0.0,
+        "rel_cost_err": 0.0,
+        "feasibility_a": 0.02682349515736821,
+        "feasibility_b": 0.036168433806683456
+      },
+      "ortools": {
+        "error": "RuntimeError: OR-Tools SimpleMinCostFlow did not converge (status=Status.INFEASIBLE)"
+      }
+    },
+    "20": {
+      "lemon": {
+        "cost": 0.0,
+        "cost_ref": 0.0,
+        "rel_cost_err": 0.0,
+        "feasibility_a": 0.02682349515736821,
+        "feasibility_b": 0.036168433806683456
+      },
+      "ortools": {
+        "error": "RuntimeError: OR-Tools SimpleMinCostFlow did not converge (status=Status.INFEASIBLE)"
+      }
+    },
+    "32": {
+      "lemon": {
+        "error": "LEMON hung > 30.0s"
+      },
+      "ortools": {
+        "cost": 36.948979925,
+        "cost_ref": 0.0,
+        "rel_cost_err": 3.6948979925e+16,
+        "feasibility_a": 4.981431989993512e-10,
+        "feasibility_b": 5.292362747696955e-09
+      }
+    },
+    "200": {
+      "lemon": {
+        "error": "LEMON hung > 30.0s"
+      },
+      "ortools": {
+        "cost": 36.948979925,
+        "cost_ref": 36.65685892472067,
+        "rel_cost_err": 0.007969067968404938,
+        "feasibility_a": 4.981431989993512e-10,
+        "feasibility_b": 5.292362747696955e-09
+      }
+    }
+  },
+  "1000": {
+    "4": {
+      "lemon": {
+        "cost": 0.0,
+        "cost_ref": 0.0,
+        "rel_cost_err": 0.0,
+        "feasibility_a": 0.007975175004820883,
+        "feasibility_b": 0.007057705709240349
+      },
+      "ortools": {
+        "error": "RuntimeError: OR-Tools SimpleMinCostFlow did not converge (status=Status.INFEASIBLE)"
+      }
+    },
+    "32": {
+      "lemon": {
+        "cost": 0.0,
+        "cost_ref": 0.0,
+        "rel_cost_err": 0.0,
+        "feasibility_a": 0.007975175004820883,
+        "feasibility_b": 0.007057705709240349
+      },
+      "ortools": {
+        "error": "RuntimeError: OR-Tools SimpleMinCostFlow did not converge (status=Status.INFEASIBLE)"
+      }
+    },
+    "100": {
+      "lemon": {
+        "error": "LEMON hung > 30.0s"
+      },
+      "ortools": {
+        "cost": 277.575634394,
+        "cost_ref": 0.0,
+        "rel_cost_err": 2.77575634394e+17,
+        "feasibility_a": 1.865695118362376e-09,
+        "feasibility_b": 4.999734103290632e-10
+      }
+    },
+    "1000": {
+      "lemon": {
+        "error": "LEMON hung > 30.0s"
+      },
+      "ortools": {
+        "cost": 277.575634394,
+        "cost_ref": 277.4753087142047,
+        "rel_cost_err": 0.0003615661525352751,
+        "feasibility_a": 1.865695118362376e-09,
+        "feasibility_b": 4.999734103290632e-10
+      }
+    }
+  }
+}

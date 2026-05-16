@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import ot
 
 import sparse_ot
@@ -92,3 +93,76 @@ def test_emd_nonnegative_transport():
     a, b, M = _problem(10, 10)
     G = sparse_ot.emd(a, b, M)
     assert np.all(G >= -1e-12)
+
+
+# --- LEMON path tests ---
+
+def test_emd_lemon_override():
+    a, b, M = _problem(8, 8)
+    G = sparse_ot.emd(a, b, M, solver='lemon')
+    G_ref = ot.emd(a, b, M)
+    np.testing.assert_allclose(G, G_ref, atol=1e-6)
+
+
+def test_emd2_lemon_override():
+    a, b, M = _problem(10, 10)
+    cost = sparse_ot.emd2(a, b, M, solver='lemon')
+    cost_ref = ot.emd2(a, b, M)
+    assert abs(cost - cost_ref) / abs(cost_ref) < 1e-6
+
+
+def test_emd_scipy_sparse_input():
+    """scipy CSR cost matrix is accepted and returns scipy CSR transport plan."""
+    rng = np.random.default_rng(99)
+    n = 8
+    a = rng.dirichlet(np.ones(n))
+    b = rng.dirichlet(np.ones(n))
+    M_dense = rng.uniform(0, 1, (n, n))
+    import scipy.sparse
+    M_sp = scipy.sparse.csr_matrix(M_dense)
+    G = sparse_ot.emd(a, b, M_sp, solver='lemon')
+    assert scipy.sparse.issparse(G)
+    np.testing.assert_allclose(
+        np.asarray(G.sum(axis=1)).ravel(), a, atol=1e-9
+    )
+    np.testing.assert_allclose(
+        np.asarray(G.sum(axis=0)).ravel(), b, atol=1e-9
+    )
+
+
+def test_emd2_scipy_sparse_input():
+    """emd2 with scipy CSR input returns same cost as POT."""
+    rng = np.random.default_rng(55)
+    n = 8
+    a = rng.dirichlet(np.ones(n))
+    b = rng.dirichlet(np.ones(n))
+    M_dense = rng.uniform(0, 1, (n, n))
+    import scipy.sparse
+    M_sp = scipy.sparse.csr_matrix(M_dense)
+    cost_sot = sparse_ot.emd2(a, b, M_sp, solver='lemon')
+    cost_pot = ot.emd2(a, b, M_dense)
+    assert abs(cost_sot - cost_pot) / abs(cost_pot) < 1e-6
+
+
+def test_emd_ortools_raises_not_implemented():
+    a, b, M = _problem(5, 5)
+    with pytest.raises(NotImplementedError):
+        sparse_ot.emd(a, b, M, solver='ortools')
+
+
+def test_emd_invalid_solver_raises():
+    a, b, M = _problem(5, 5)
+    with pytest.raises(ValueError):
+        sparse_ot.emd(a, b, M, solver='invalid')
+
+
+def test_emd_cost_sparsity_threshold_drops_edges():
+    """cost_sparsity_threshold drops low-cost edges; result has correct marginals."""
+    rng = np.random.default_rng(11)
+    n = 10
+    a = rng.dirichlet(np.ones(n))
+    b = rng.dirichlet(np.ones(n))
+    M = rng.uniform(0, 1, (n, n))
+    G = sparse_ot.emd(a, b, M, cost_sparsity_threshold=0.2)
+    np.testing.assert_allclose(G.sum(axis=1), a, atol=1e-9)
+    np.testing.assert_allclose(G.sum(axis=0), b, atol=1e-9)

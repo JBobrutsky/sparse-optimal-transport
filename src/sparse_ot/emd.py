@@ -1,54 +1,77 @@
 import numpy as np
+import scipy.sparse
 
 from sparse_ot._ext import _bonneel
+from sparse_ot.sparse_utils import to_csr
+from sparse_ot.routing import select_solver
 
 
 def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
         cost_sparsity_threshold=0.0, solver=None):
     """Transport plan between distributions a and b with cost matrix M.
 
-    Drop-in replacement for ot.emd(). Returns a dense numpy array.
+    Drop-in replacement for ot.emd(). Dense numpy input returns a dense numpy
+    array; scipy sparse input returns scipy CSR.
 
     Parameters
     ----------
     a : array-like, shape (n,)
     b : array-like, shape (m,)
-    M : array-like, shape (n, m)
+    M : array-like (n, m) or scipy sparse (n, m)
     numItermax : int
-        Max iterations for the solver.
-    log : bool
-        If True, return (G, log_dict).
-    center_dual : bool
-        Accepted for POT compatibility; has no effect.
-    cost_sparsity_threshold : float
-        Values with |M[i,j]| <= threshold are treated as absent edges. Not yet used in this version.
-    solver : str or None
-        'bonneel' or None (auto).
+    log : bool — if True, return (G, log_dict)
+    center_dual : bool — accepted for POT compatibility; not used
+    cost_sparsity_threshold : float — dense M only: drop |M[i,j]| <= threshold
+    solver : str or None — 'bonneel', 'lemon', 'ortools', or None (auto)
 
     Returns
     -------
-    G : ndarray, shape (n, m)
+    G : ndarray (n, m) or scipy CSR (n, m)
+    (G, {}) if log=True
     """
     a = np.asarray(a, dtype=np.float64).ravel()
     b = np.asarray(b, dtype=np.float64).ravel()
-    M = np.asarray(M, dtype=np.float64, order="C")
 
-    if M.ndim != 2:
-        raise ValueError(f"M must be 2-D, got shape {M.shape}")
-    if M.shape != (len(a), len(b)):
+    if solver not in (None, 'bonneel', 'lemon', 'ortools'):
         raise ValueError(
-            f"M must have shape ({len(a)}, {len(b)}), got {M.shape}"
+            f"solver={solver!r} must be None, 'bonneel', 'lemon', or 'ortools'"
         )
-    if solver not in (None, "bonneel"):
-        raise ValueError(
-            f"solver={solver!r} is not supported. Use None or 'bonneel'."
+    if solver == 'ortools':
+        raise NotImplementedError(
+            "'ortools' solver is not yet implemented. "
+            "Use None, 'bonneel', or 'lemon'."
         )
 
-    # Bonneel requires exactly balanced supply/demand.
+    dense_input = not scipy.sparse.issparse(M)
+    row_ptr, col_idx, costs, n, m, nnz = to_csr(M, cost_sparsity_threshold)
+
+    if (len(a), len(b)) != (n, m):
+        raise ValueError(
+            f"M must have shape ({len(a)}, {len(b)}), got ({n}, {m})"
+        )
+
     a = a / a.sum()
     b = b / b.sum()
 
-    G = _bonneel.solve_dense(a, b, M, numItermax)
+    selected = select_solver(n, m, nnz, solver)
+
+    if selected == 'bonneel':
+        if dense_input:
+            M_dense = np.asarray(M, dtype=np.float64, order='C')
+        else:
+            M_dense = np.asarray(M.toarray(), dtype=np.float64, order='C')
+        G = _bonneel.solve_dense(a, b, M_dense, numItermax)
+        if log:
+            return G, {}
+        return G
+
+    # LEMON path
+    from sparse_ot._ext import _lemon
+    rows, cols, vals = _lemon.solve_sparse(
+        a, b, row_ptr, col_idx, costs, numItermax
+    )
+    G_sp = scipy.sparse.csr_matrix((vals, (rows, cols)), shape=(n, m))
+    G = G_sp.toarray() if dense_input else G_sp
 
     if log:
         return G, {}
@@ -65,26 +88,30 @@ def emd2(a, b, M, numItermax=100000, log=False, return_matrix=False,
     ----------
     a : array-like, shape (n,)
     b : array-like, shape (m,)
-    M : array-like, shape (n, m)
+    M : array-like (n, m) or scipy sparse (n, m)
     numItermax : int
     log : bool
-        If True, return (cost, log_dict) or (cost, G, log_dict) with return_matrix.
-    return_matrix : bool
-        If True, also return the transport plan G.
+    return_matrix : bool — if True, also return the transport plan G
     cost_sparsity_threshold : float
-        Values with |M[i,j]| <= threshold are treated as absent edges.
     solver : str or None
 
     Returns
     -------
     cost : float
-    G : ndarray, shape (n, m)  — only if return_matrix=True
+    G : ndarray or scipy CSR — only if return_matrix=True
     """
     G = emd(a, b, M, numItermax=numItermax, log=False,
             cost_sparsity_threshold=cost_sparsity_threshold, solver=solver)
 
-    M_n = np.asarray(M, dtype=np.float64)
-    cost = float(np.sum(G * M_n))
+    if scipy.sparse.issparse(M):
+        M_arr = np.asarray(M.toarray(), dtype=np.float64)
+    else:
+        M_arr = np.asarray(M, dtype=np.float64)
+
+    if scipy.sparse.issparse(G):
+        cost = float(G.multiply(M_arr).sum())
+    else:
+        cost = float(np.sum(G * M_arr))
 
     if return_matrix:
         if log:

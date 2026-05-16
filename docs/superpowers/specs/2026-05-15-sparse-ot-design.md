@@ -74,6 +74,22 @@ cost = sot.emd2(a, b, M, numItermax=100000, log=False, return_matrix=False,
 
 **`emd2` implementation:** calls `emd` internally, then contracts the transport plan against `M` to produce the scalar cost. Same as POT.
 
+**Feasibility contract.** The user is responsible for supplying a cost matrix whose support admits a feasible transport plan for the given marginals `(a, b)`. Before invoking any solver, `sparse_ot` runs a cheap feasibility check on the sparse support (§3); if no feasible flow exists, it raises:
+
+```python
+class InfeasibleProblemError(ValueError):
+    """Raised when the sparse cost matrix's support cannot transport (a, b).
+
+    Attributes:
+        imbalance: signed mass imbalance of the worst-violating component
+            (sum(a) - sum(b) over that component).
+        component_sources: source-node indices in the violating component (up to 10).
+        component_targets: target-node indices in the violating component (up to 10).
+    """
+```
+
+The check is skipped for fully dense `M` (no possible infeasibility) and for the Bonneel path (solver itself rejects infeasible inputs). For sparse inputs the check runs unconditionally — its cost is `O(nnz)` and dominated by the solver itself.
+
 ---
 
 ## 3. Data Flow
@@ -90,6 +106,17 @@ User calls emd(a, b, M)
     │   scipy sparse → convert to CSR directly
     │   torch sparse → extract indices/values → CSR
     │   compute: nnz, sparsity_ratio = nnz / (n * m)
+    │
+    ├─ feasibility check (sparse path only)
+    │   check_feasibility(a, b, row_ptr, col_idx) → ok | InfeasibleProblemError
+    │   Implementation: union-find over the bipartite support graph in O(nnz·α).
+    │   For each connected component, sum(a over sources in component) must
+    │   equal sum(b over targets in component) within 1e-12. If not, raise
+    │   with the violating component's source/target indices and the mass
+    │   imbalance. (This is the necessary-and-sufficient condition for
+    │   transport feasibility with unbounded-capacity edges and sum(a)=sum(b).)
+    │   Skipped when the cost matrix is fully dense and when solver='bonneel'
+    │   is explicit (Bonneel rejects infeasibility itself).
     │
     ├─ routing.py
     │   select_solver(n, m, sparsity_ratio, solver_override)
@@ -204,6 +231,10 @@ Both thresholds are stored in `benchmarks/results/routing_thresholds.json` and d
 
 **Problem generator:** both distributions `a` and `b` are always fully dense (all n bins have positive mass, drawn from a Dirichlet distribution). Sparsity is controlled exclusively by `k` — the number of allowed neighbors per source node — so `nnz = k × n`. Problems are structured to match the reference use case: a regular grid in 1D/2D/3D where each source node connects to its `k` nearest neighbors in the target grid.
 
+**Feasibility guarantee.** Benchmark instances must be feasible by construction. Source and target use the **same** grid (n = m, coincident node coordinates), and the k-NN graph is built so each node's nearest neighbor is itself (`k ≥ 1` includes the self-edge `i → i` at distance 0). The identity backbone guarantees a trivial feasible flow (transport all mass `i → i`) for any Dirichlet marginals, regardless of `k`. The generator asserts every node has its self-edge present in the constructed CSR.
+
+User-supplied sparse cost matrices are *not* assumed feasible; the public API (§2/§3) validates feasibility and raises `InfeasibleProblemError` with a diagnostic message before calling any solver. The benchmark generator never triggers this path.
+
 ### Memory cutoffs
 
 Benchmark cutoffs are defined as named constants in `bench_solvers.py` and documented in the README. Default values target a 16GB RAM machine:
@@ -229,9 +260,20 @@ Each `(n, k, solver)` cell is skipped (recorded as `null`) if `n > MAX_DENSE_N` 
 
 ### Accuracy sweep
 
-For each `(n, k)` configuration where LEMON is the selected solver:
-- **n ≤ 64K:** ground truth via POT's `emd2`; report relative cost error `|cost_lemon - cost_pot| / cost_pot` and primal feasibility `‖T @ 1 − a‖∞`, `‖Tᵀ @ 1 − b‖∞`
-- **n > 64K:** POT cannot run at this scale; report primal feasibility only (no cost error metric)
+POT cannot serve as a ground-truth reference for sparse `(n, k)` cells because it solves OT on the full dense cost matrix — a strictly different problem than sparse-restricted OT, with a generally different optimum. Instead, accuracy is measured against the **best feasible cost across all solvers that succeeded on the same instance**.
+
+For each `(n, k)` configuration and each random instance:
+
+1. Run every applicable solver (`bonneel` when `k = n`, `lemon`, `ortools`, and `pot_reference` only when `k = n`).
+2. Verify each result is primal-feasible: `‖T @ 1 − a‖∞ < 1e-8` and `‖Tᵀ @ 1 − b‖∞ < 1e-8`. Solvers that fail feasibility are excluded from the reference and flagged as errors in the JSON.
+3. Define `cost_ref = min(cost_solver for solver in feasible_solvers)` — the smallest Wasserstein distance achieved on this instance.
+4. For each feasible solver, report:
+   - `cost` (achieved transport cost),
+   - `cost_ref` (the minimum across solvers on this instance),
+   - `rel_cost_err = (cost - cost_ref) / cost_ref` — non-negative by construction; values above `1e-6` indicate a solver is finding a suboptimal feasible plan,
+   - `feasibility_a`, `feasibility_b` (primal residuals as above).
+
+When `k = n` (fully dense), POT participates in the reference and provides cross-validation against an independent implementation. When `k < n`, the reference is the agreement floor between `lemon` and `ortools` (and `bonneel` if it ran on the sparse problem via dense embedding).
 
 Results: `benchmarks/results/accuracy.json`
 
@@ -239,7 +281,7 @@ Results: `benchmarks/results/accuracy.json`
 
 - **Heatmap:** wall time ratio over the (n, k) grid for each solver pair (LEMON/Bonneel, OR-Tools/LEMON); crossover contours mark the two routing thresholds
 - **Line plots:** wall time vs. n at fixed k values, one line per solver
-- **Accuracy plot:** relative cost error and feasibility residual vs. k per solver, with confidence bands across random problem instances
+- **Accuracy plot:** relative cost error (vs. best-of-solvers `cost_ref`) and feasibility residual vs. k per solver, with confidence bands across random problem instances
 - **Routing threshold derivation:** annotated crossover contours used to generate `routing_thresholds.json`
 
 Figures saved to `benchmarks/results/figures/`. Key figures embedded in README.
@@ -254,6 +296,7 @@ Figures saved to `benchmarks/results/figures/`. Key figures embedded in README.
 | `test_sparse_utils.py` | dense→CSR thresholding; scipy/torch sparse→CSR roundtrip; edge cases (all-zero, single edge, fully dense) |
 | `test_routing.py` | solver selection vs threshold; `solver=` override; threshold table load |
 | `test_lemon_accuracy.py` | float64 patch validation; sweep of cost magnitudes; relative error < 1e-6 across all cases |
+| `test_feasibility_check.py` | `check_feasibility` raises `InfeasibleProblemError` with correct `imbalance` and component diagnostics on disconnected supports and mismatched component masses; passes silently on connected/balanced supports; skipped on dense `M` and `solver='bonneel'` paths; benchmark generator never raises |
 
 **CI (GitHub Actions):** matrix over Python 3.10/3.11/3.12 on Linux and macOS. Runs on every PR.
 

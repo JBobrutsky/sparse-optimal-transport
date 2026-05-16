@@ -1302,8 +1302,10 @@ namespace lemon {
                 // Compute the new rank of v
                 LargeCost nrc = (_cost[ra] + _pi[v] - pi_u) / _epsilon;
                 int new_rank_v = old_rank_v;
-                if (nrc < LargeCost(_max_rank)) {
-                  new_rank_v = r + 1 + static_cast<int>(nrc);
+                if (nrc < LargeCost(_max_rank - r - 1)) {
+                  int candidate = r + 1 + static_cast<int>(nrc);
+                  if (candidate >= 0) new_rank_v = candidate;
+                  else new_rank_v = 0;
                 }
 
                 // Change the rank of v
@@ -1365,15 +1367,14 @@ namespace lemon {
       BoolVector path_arc(_res_arc_num, false);
       int relabel_cnt = 0;
       int eps_phase_cnt = 0;
-      for ( ; _epsilon >= _tolerance * _initial_max_cost; _epsilon = _epsilon < _alpha && _epsilon > _tolerance * _initial_max_cost ?
-                                        _tolerance * _initial_max_cost : _epsilon / _alpha )
+      for ( ; _epsilon >= _tolerance * _initial_max_cost; _epsilon /= _alpha )
       {
         ++eps_phase_cnt;
 
-        // Price refinement heuristic
-        if (eps_phase_cnt >= PRICE_REFINEMENT_LIMIT) {
-          if (priceRefinement()) continue;
-        }
+        // Price refinement heuristic (disabled: causes heap corruption with many phases)
+        // if (eps_phase_cnt >= PRICE_REFINEMENT_LIMIT) {
+        //   if (priceRefinement()) continue;
+        // }
 
         // Initialize current phase
         initPhase();
@@ -1491,15 +1492,14 @@ namespace lemon {
       LargeCostVector hyper_cost(_res_node_num);
       int relabel_cnt = 0;
       int eps_phase_cnt = 0;
-      for ( ; _epsilon >= _tolerance * _initial_max_cost; _epsilon = _epsilon < _alpha && _epsilon > _tolerance * _initial_max_cost ?
-                                        _tolerance * _initial_max_cost : _epsilon / _alpha )
+      for ( ; _epsilon >= _tolerance * _initial_max_cost; _epsilon /= _alpha )
       {
         ++eps_phase_cnt;
 
-        // Price refinement heuristic
-        if (eps_phase_cnt >= PRICE_REFINEMENT_LIMIT) {
-          if (priceRefinement()) continue;
-        }
+        // Price refinement heuristic (disabled: causes heap corruption with many phases)
+        // if (eps_phase_cnt >= PRICE_REFINEMENT_LIMIT) {
+        //   if (priceRefinement()) continue;
+        // }
 
         // Initialize current phase
         initPhase();

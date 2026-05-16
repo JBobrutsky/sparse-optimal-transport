@@ -16,3 +16,4 @@ after one step, giving a one-iteration solve with poor solution quality.
 
 **Effect:** The algorithm runs until epsilon is 1e-9 times the initial max cost, providing
 the same relative precision for any cost scale.
+

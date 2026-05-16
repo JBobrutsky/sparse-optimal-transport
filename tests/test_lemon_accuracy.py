@@ -4,11 +4,6 @@ import pytest
 import scipy.sparse
 import ot
 
-# LEMON solver (commit e713311) hangs in C++ on some inputs and returns
-# degenerate plans on others — see TODO. Skip the entire accuracy suite
-# until the solver is fixed.
-pytestmark = pytest.mark.skip(reason="LEMON solver unreliable — see TODO")
-
 from sparse_ot._ext import _lemon
 from sparse_ot.sparse_utils import to_csr
 

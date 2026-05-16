@@ -10,10 +10,11 @@ problem size and sparsity:
 | LEMON        | Sparse, moderate scale (float64-patched)       | Vendored C++ (`src/cpp/lemon`) + custom patch |
 | OR-Tools     | Very large sparse problems                     | Optional `ortools` Python dep |
 
-> **Note on LEMON:** the vendored LEMON CostScaling solver currently has a
-> known instability — it hangs in C++ on some rectangular inputs and returns
-> degenerate plans on others. LEMON-routed tests are skipped pending a fix.
-> For now, prefer `solver='bonneel'` (dense) or `solver='ortools'` (large sparse).
+> **Rebuild gotcha:** `uv pip install -e .` does not always recompile the
+> pybind11 extensions when only the C++ sources change. After editing files
+> under `src/cpp/`, force a rebuild with
+> `uv pip install --no-build-isolation -e . --force-reinstall --no-deps`,
+> or `touch src/cpp/<file>.cpp` first.
 
 ## Quickstart
 

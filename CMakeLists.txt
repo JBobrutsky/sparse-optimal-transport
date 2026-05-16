@@ -11,6 +11,11 @@ target_include_directories(_bonneel PRIVATE src/cpp)
 target_compile_options(_bonneel PRIVATE -O3)
 install(TARGETS _bonneel DESTINATION sparse_ot/_ext)
 
+pybind11_add_module(_lemon src/cpp/lemon_solver.cpp)
+target_include_directories(_lemon PRIVATE src/cpp)
+target_compile_options(_lemon PRIVATE -O3)
+install(TARGETS _lemon DESTINATION sparse_ot/_ext)
+
 # OpenMP: try system FindOpenMP first; fall back to Homebrew libomp on macOS
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)

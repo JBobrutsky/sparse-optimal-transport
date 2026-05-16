@@ -26,7 +26,11 @@
     },
     "32": {
       "lemon": {
-        "error": "LEMON hung > 30.0s"
+        "cost": 36.948982343004,
+        "cost_ref": 0.0,
+        "rel_cost_err": 3.694898234300399e+16,
+        "feasibility_a": 4.927540580429435e-13,
+        "feasibility_b": 2.6372523956319505e-12
       },
       "ortools": {
         "cost": 36.948979925,
@@ -38,7 +42,11 @@
     },
     "200": {
       "lemon": {
-        "error": "LEMON hung > 30.0s"
+        "cost": 36.948982343004005,
+        "cost_ref": 36.65685892472067,
+        "rel_cost_err": 0.007969133931612709,
+        "feasibility_a": 4.927540580429435e-13,
+        "feasibility_b": 2.6372523956319505e-12
       },
       "ortools": {
         "cost": 36.948979925,
@@ -76,7 +84,11 @@
     },
     "100": {
       "lemon": {
-        "error": "LEMON hung > 30.0s"
+        "cost": 277.575617244104,
+        "cost_ref": 0.0,
+        "rel_cost_err": 2.77575617244104e+17,
+        "feasibility_a": 4.988402269381909e-13,
+        "feasibility_b": 3.058212428956597e-12
       },
       "ortools": {
         "cost": 277.575634394,
@@ -88,7 +100,11 @@
     },
     "1000": {
       "lemon": {
-        "error": "LEMON hung > 30.0s"
+        "cost": 277.57561724410397,
+        "cost_ref": 277.4753087142047,
+        "rel_cost_err": 0.0003615043456086261,
+        "feasibility_a": 4.988402269381909e-13,
+        "feasibility_b": 3.058212428956597e-12
       },
       "ortools": {
         "cost": 277.575634394,

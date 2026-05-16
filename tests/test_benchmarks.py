@@ -53,3 +53,20 @@ def test_generate_seed_differs():
     a1, _, _ = generate_knn_grid_problem(n=50, k=4, seed=1)
     a2, _, _ = generate_knn_grid_problem(n=50, k=4, seed=2)
     assert not np.array_equal(a1, a2)
+
+
+@pytest.mark.timeout(600)
+def test_bench_solvers_quick_smoke(tmp_path):
+    """`python benchmarks/bench_solvers.py --quick` exits 0 and writes JSON."""
+    import subprocess, sys, os
+    from pathlib import Path
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
+    result = subprocess.run(
+        [sys.executable, "benchmarks/bench_solvers.py", "--quick"],
+        cwd=str(repo_root), env=env, capture_output=True, text=True, timeout=600,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert (repo_root / "benchmarks/results/efficiency_quick.json").exists()
+    assert (repo_root / "benchmarks/results/accuracy_quick.json").exists()

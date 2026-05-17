@@ -104,3 +104,16 @@ def test_lemon_sparse_cost_matches_pot():
     cost_pot   = ot.emd2(a, b, M_dense)
     rel_err = abs(cost_lemon - cost_pot) / max(abs(cost_pot), 1e-15)
     assert rel_err < 1e-6, f"rel_err={rel_err}"
+
+
+def test_lemon_infeasible_problem_raises():
+    """LEMON wrapper raises RuntimeError on infeasible problems (no all-zero plans)."""
+    from sparse_ot import emd
+    # source 0 has all the supply; sinks need it; but no arcs from source 0
+    # to any sink — infeasible bipartite flow.
+    a = np.array([1.0])
+    b = np.array([0.5, 0.5])
+    # M shape (1, 2) with both entries zero → to_csr drops them → no edges
+    M = np.zeros((1, 2))
+    with pytest.raises(RuntimeError, match="INFEASIBLE"):
+        emd(a, b, M, solver='lemon')

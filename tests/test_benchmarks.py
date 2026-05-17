@@ -1,0 +1,184 @@
+# tests/test_benchmarks.py
+import numpy as np
+import scipy.sparse
+import pytest
+
+from benchmarks.problems import generate_knn_grid_problem
+
+
+def test_generate_shapes_and_nnz():
+    a, b, M, _ = generate_knn_grid_problem(n=20, k=4, seed=0)
+    assert a.shape == (20,) and b.shape == (20,)
+    assert scipy.sparse.issparse(M)
+    assert M.shape == (20, 20)
+    assert 0 < M.nnz <= 20 * 4
+
+
+def test_generate_nnz_for_interior():
+    """For n >> k, nnz is close to n * k."""
+    a, b, M, _ = generate_knn_grid_problem(n=1000, k=8, seed=0)
+    assert M.nnz >= 1000 * 8 - 8 * 8
+
+
+def test_generate_fully_dense_when_k_equals_n():
+    a, b, M, _ = generate_knn_grid_problem(n=10, k=10, seed=0)
+    assert M.nnz == 100
+
+
+def test_generate_distributions_normalized():
+    a, b, M, _ = generate_knn_grid_problem(n=50, k=4, seed=0)
+    np.testing.assert_allclose(a.sum(), 1.0, atol=1e-12)
+    np.testing.assert_allclose(b.sum(), 1.0, atol=1e-12)
+    assert (a > 0).all()
+    assert (b > 0).all()
+
+
+def test_generate_costs_are_squared_distance():
+    """Cost at edge (i, j) equals (i - j) ** 2."""
+    _, _, M, _ = generate_knn_grid_problem(n=20, k=4, seed=0)
+    coo = M.tocoo()
+    for i, j, c in zip(coo.row, coo.col, coo.data):
+        np.testing.assert_allclose(c, (int(i) - int(j)) ** 2)
+
+
+def test_generate_seed_reproducibility():
+    a1, b1, M1, _ = generate_knn_grid_problem(n=50, k=4, seed=42)
+    a2, b2, M2, _ = generate_knn_grid_problem(n=50, k=4, seed=42)
+    np.testing.assert_array_equal(a1, a2)
+    np.testing.assert_array_equal(b1, b2)
+    np.testing.assert_array_equal(M1.toarray(), M2.toarray())
+
+
+def test_generate_seed_differs():
+    a1, _, _, _ = generate_knn_grid_problem(n=50, k=4, seed=1)
+    a2, _, _, _ = generate_knn_grid_problem(n=50, k=4, seed=2)
+    assert not np.array_equal(a1, a2)
+
+
+@pytest.mark.timeout(600)
+def test_bench_solvers_quick_smoke(tmp_path):
+    """`python benchmarks/bench_solvers.py --quick` exits 0 and writes JSON."""
+    import subprocess, sys, os
+    from pathlib import Path
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
+    result = subprocess.run(
+        [sys.executable, "benchmarks/bench_solvers.py", "--quick"],
+        cwd=str(repo_root), env=env, capture_output=True, text=True, timeout=600,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert (repo_root / "benchmarks/results/efficiency_quick.json").exists()
+    assert (repo_root / "benchmarks/results/accuracy_quick.json").exists()
+
+    import json
+    eff = json.loads((repo_root / "benchmarks/results/efficiency_quick.json").read_text())
+    acc = json.loads((repo_root / "benchmarks/results/accuracy_quick.json").read_text())
+
+    # Structure: dict[n_str] -> dict[k_str] -> dict[solver] -> result|None
+    assert "200" in eff and "1000" in eff
+    cell = eff["200"]["4"]   # smallest quick cell
+    assert set(cell.keys()) >= {"bonneel", "lemon", "ortools", "pot_reference"}
+
+    # At least bonneel and pot_reference should succeed on n=200 (small dense problem).
+    # LEMON is allowed to be None/error (known broken). OR-Tools may or may not be
+    # infeasible on k=4. Require Bonneel and POT to produce a wall_time_s.
+    bonneel = cell["bonneel"]
+    pot     = cell["pot_reference"]
+    assert isinstance(bonneel, dict) and bonneel.get("wall_time_s") is not None, bonneel
+    assert isinstance(pot, dict)     and pot.get("wall_time_s") is not None, pot
+
+    # Accuracy file should have same n/k structure.
+    assert "200" in acc and "1000" in acc
+
+
+@pytest.mark.parametrize("n,k", [(50, 1), (50, 2), (200, 4), (1000, 8)])
+def test_generator_produces_feasible_instance(n, k):
+    from sparse_ot.feasibility import check_feasibility
+    a, b, M, w_plan = generate_knn_grid_problem(n, k, seed=0)
+    M_csr = M.tocsr()
+    for i in range(n):
+        cols_i = M_csr.indices[M_csr.indptr[i]:M_csr.indptr[i + 1]]
+        assert i in cols_i, f"row {i} missing self-edge"
+    # Float-exact marginal balance.
+    assert a.sum() == b.sum(), f"sum(a)={a.sum()!r} sum(b)={b.sum()!r}"
+    # Full-support marginals.
+    assert (a > 0).all() and (b > 0).all()
+    # Witness plan is feasible: row sums == a, col sums == b.
+    w_csr = w_plan.tocsr()
+    assert np.allclose(np.asarray(w_csr.sum(axis=1)).ravel(), a, atol=1e-12)
+    assert np.allclose(np.asarray(w_csr.sum(axis=0)).ravel(), b, atol=1e-12)
+    # Union-find feasibility check passes.
+    row_ptr = M_csr.indptr.astype(np.int32)
+    col_idx = M_csr.indices.astype(np.int32)
+    check_feasibility(a, b, row_ptr, col_idx)
+
+
+def test_compute_accuracy_cell_picks_min_cost_as_reference():
+    from benchmarks.bench_solvers import compute_accuracy_cell
+    raw = {
+        'lemon':   {'cost': 10.0, 'feasibility_a': 1e-13, 'feasibility_b': 1e-13},
+        'ortools': {'cost': 10.5, 'feasibility_a': 1e-10, 'feasibility_b': 1e-10},
+        'bonneel': {'error': 'skipped'},
+    }
+    out = compute_accuracy_cell(raw)
+    assert out['lemon']['cost_ref'] == 10.0
+    assert out['ortools']['cost_ref'] == 10.0
+    assert out['lemon']['rel_cost_err'] == 0.0
+    assert out['ortools']['rel_cost_err'] == pytest.approx(0.05, rel=1e-9)
+    assert out['bonneel'].get('error') == 'skipped'
+
+
+def test_compute_accuracy_cell_excludes_infeasible_from_reference():
+    from benchmarks.bench_solvers import compute_accuracy_cell
+    raw = {
+        'lemon':   {'cost': 10.0, 'feasibility_a': 1e-13, 'feasibility_b': 1e-13},
+        # ortools achieves a lower cost but is not primal-feasible — must be excluded.
+        'ortools': {'cost': 9.0,  'feasibility_a': 1e-3,  'feasibility_b': 1e-3},
+    }
+    out = compute_accuracy_cell(raw)
+    assert out['lemon']['cost_ref'] == 10.0
+    assert out['lemon']['rel_cost_err'] == 0.0
+    # ortools is excluded from the reference; its cost_ref should either
+    # not exist or carry the excluded marker.
+    assert out['ortools'].get('excluded_from_reference') is True
+
+
+def test_compute_accuracy_cell_no_feasible_solvers():
+    from benchmarks.bench_solvers import compute_accuracy_cell
+    raw = {
+        'lemon':   {'error': 'crashed'},
+        'ortools': {'cost': 9.0,  'feasibility_a': 1e-3,  'feasibility_b': 1e-3},
+    }
+    out = compute_accuracy_cell(raw)
+    # No reference can be derived. The function should not crash and should
+    # leave the entries as-is (or mark them as excluded).
+    assert 'cost_ref' not in out.get('lemon', {})
+    assert out['ortools'].get('cost_ref') is None or out['ortools'].get('excluded_from_reference') is True
+
+
+def test_derive_thresholds_picks_crossover():
+    from benchmarks.generate_report import derive_thresholds
+    # Synthetic efficiency data: bonneel wins at k>=64 at n=1000; lemon wins below.
+    # At n=1000000, ortools beats lemon at every k where both ran.
+    eff = {
+        '1000': {
+            '4':  {'bonneel': {'wall_time_s': 2.0},
+                   'lemon':   {'wall_time_s': 0.5},
+                   'ortools': {'wall_time_s': 1.0}},
+            '64': {'bonneel': {'wall_time_s': 0.4},
+                   'lemon':   {'wall_time_s': 0.5},
+                   'ortools': {'wall_time_s': 0.7}},
+        },
+        '1000000': {
+            '4':  {'bonneel': {'wall_time_s': None},
+                   'lemon':   {'wall_time_s': 60.0},
+                   'ortools': {'wall_time_s': 30.0}},
+            '64': {'bonneel': {'wall_time_s': None},
+                   'lemon':   {'wall_time_s': 40.0},
+                   'ortools': {'wall_time_s': 50.0}},
+        },
+    }
+    out = derive_thresholds(eff)
+    assert 4 <= out['bonneel_lemon'] <= 64
+    assert 1000 <= out['lemon_ortools'] <= 1000000

@@ -21,7 +21,26 @@ def to_csr(M, cost_sparsity_threshold=0.0):
     """
     if scipy.sparse.issparse(M):
         csr = M.tocsr().astype(np.float64)
-        csr.eliminate_zeros()
+        # Do NOT call eliminate_zeros() here: zero-cost edges (e.g. self-edges
+        # on a k-NN band with cost = (i-j)^2) are structurally required for
+        # feasibility.  Removing them can turn a feasible instance infeasible.
+        #
+        # Filter per spec §3:
+        #   1. Drop ±inf and NaN (absent-edge sentinels).
+        #   2. Drop |cost| <= threshold when threshold > 0 (explicit sparsification).
+        #      At threshold == 0.0 (the default), no costs are dropped — an
+        #      explicit stored 0 is a real free edge.
+        coo = csr.tocoo()
+        if coo.data.size > 0:
+            keep = np.isfinite(coo.data)
+            if cost_sparsity_threshold > 0.0:
+                keep &= np.abs(coo.data) > cost_sparsity_threshold
+            if not keep.all():
+                coo = scipy.sparse.coo_matrix(
+                    (coo.data[keep], (coo.row[keep], coo.col[keep])),
+                    shape=coo.shape,
+                )
+                csr = coo.tocsr()
         n, m = csr.shape
         return (
             csr.indptr.astype(np.int32),

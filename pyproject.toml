@@ -16,8 +16,18 @@ dependencies = [
 [project.optional-dependencies]
 torch = ["torch>=2.0"]
 ortools = ["ortools>=9.8"]
-dev = ["pytest>=7.0", "pot>=0.9", "pybind11>=2.12"]
+dev = ["pytest>=7.0", "pytest-timeout>=2.0", "pot>=0.9", "pybind11>=2.12", "matplotlib>=3.7"]
 
 [tool.scikit-build]
 wheel.packages = ["src/sparse_ot"]
 cmake.build-type = "Release"
+# Persistent build directory + automatic rebuild on import for editable installs.
+# Without this, `pip install -e .` does NOT recompile when only C++ sources change,
+# so edits to src/cpp/ are silently ignored until a full reinstall. See README.
+build-dir = "build/{wheel_tag}"
+editable.rebuild = true
+editable.verbose = false
+
+[tool.pytest.ini_options]
+timeout = 60
+pythonpath = ["."]

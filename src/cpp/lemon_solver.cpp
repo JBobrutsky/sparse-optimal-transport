@@ -4,6 +4,8 @@
 #include <vector>
 #include <cmath>
 #include <cstdint>
+#include <stdexcept>
+#include <string>
 
 #include "lemon/core.h"
 #include "lemon/tolerance.h"
@@ -96,7 +98,15 @@ solve_sparse(
     CS cs(g);
     cs.supplyMap(supply);
     cs.costMap(cost_map);
-    cs.run(CS::PARTIAL_AUGMENT);
+    auto pt = cs.run(CS::PARTIAL_AUGMENT);
+    if (pt != CS::OPTIMAL) {
+        // The wrapper used to silently return all-zero flows on infeasibility,
+        // which masked malformed problems. Raise so the caller hears about it.
+        const char* what = (pt == CS::INFEASIBLE) ? "INFEASIBLE"
+                         : (pt == CS::UNBOUNDED) ? "UNBOUNDED" : "UNKNOWN";
+        throw std::runtime_error(
+            std::string("LEMON CostScaling did not reach OPTIMAL (status=") + what + ")");
+    }
 
     // Scale flow values back to float64 by dividing by SUPPLY_SCALE.
     const double inv_scale = 1.0 / static_cast<double>(SUPPLY_SCALE);

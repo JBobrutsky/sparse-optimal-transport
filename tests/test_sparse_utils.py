@@ -71,12 +71,57 @@ def test_scipy_coo_converted():
     assert nnz == 2
 
 
-def test_scipy_sparse_ignores_threshold():
-    # threshold is only applied to dense inputs; scipy sparse is taken as-is
+def test_scipy_sparse_applies_threshold():
+    # threshold IS applied uniformly to both dense and sparse inputs (spec §3)
     data = np.array([0.1, 0.5, 1.0])
     row = np.array([0, 0, 1])
     col = np.array([0, 1, 0])
     M_sp = scipy.sparse.csr_matrix((data, (row, col)), shape=(2, 2))
     row_ptr, col_idx, costs, n, m, nnz = to_csr(M_sp, cost_sparsity_threshold=0.5)
-    # scipy path does NOT apply the threshold; nnz matches the sparse matrix's stored nnz
-    assert nnz == 3
+    # threshold 0.5 drops |0.1| <= 0.5 and |0.5| <= 0.5; only 1.0 remains
+    assert nnz == 1
+    assert costs[0] == 1.0
+
+
+def test_to_csr_preserves_explicit_zero_costs():
+    # 3x3 with a real free self-edge at (0, 0).
+    rows = np.array([0, 0, 1, 2], dtype=np.int32)
+    cols = np.array([0, 1, 1, 2], dtype=np.int32)
+    data = np.array([0.0, 1.0, 1.0, 1.0], dtype=np.float64)
+    M = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(3, 3))
+    row_ptr, col_idx, costs, n, m, nnz = to_csr(M, 0.0)
+    assert nnz == 4
+    # Edge (0, 0) must still be present.
+    cols_of_0 = col_idx[row_ptr[0]:row_ptr[1]]
+    assert 0 in cols_of_0
+
+
+def test_to_csr_drops_positive_infinity_costs():
+    rows = np.array([0, 0, 1], dtype=np.int32)
+    cols = np.array([0, 1, 1], dtype=np.int32)
+    data = np.array([0.5, np.inf, 0.7], dtype=np.float64)
+    M = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(2, 2))
+    row_ptr, col_idx, costs, n, m, nnz = to_csr(M, 0.0)
+    assert nnz == 2
+    assert np.isfinite(costs).all()
+
+
+def test_to_csr_drops_negative_infinity_and_nan():
+    rows = np.array([0, 0, 1], dtype=np.int32)
+    cols = np.array([0, 1, 1], dtype=np.int32)
+    data = np.array([-np.inf, np.nan, 0.7], dtype=np.float64)
+    M = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(2, 2))
+    row_ptr, col_idx, costs, n, m, nnz = to_csr(M, 0.0)
+    assert nnz == 1
+    assert costs[0] == 0.7
+
+
+def test_to_csr_threshold_still_drops_small_costs():
+    rows = np.array([0, 0, 1], dtype=np.int32)
+    cols = np.array([0, 1, 1], dtype=np.int32)
+    data = np.array([0.0, 0.05, 1.0], dtype=np.float64)
+    M = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(2, 2))
+    # Threshold 0.1 drops the 0.05 edge AND the explicit 0.0 edge.
+    row_ptr, col_idx, costs, n, m, nnz = to_csr(M, 0.1)
+    assert nnz == 1
+    assert costs[0] == 1.0

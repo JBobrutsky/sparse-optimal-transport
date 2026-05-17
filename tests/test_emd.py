@@ -3,6 +3,7 @@ import pytest
 import ot
 
 import sparse_ot
+from sparse_ot import emd
 
 
 def _problem(n, m, seed=0):
@@ -144,12 +145,6 @@ def test_emd2_scipy_sparse_input():
     assert abs(cost_sot - cost_pot) / abs(cost_pot) < 1e-6
 
 
-def test_emd_ortools_raises_not_implemented():
-    a, b, M = _problem(5, 5)
-    with pytest.raises(NotImplementedError):
-        sparse_ot.emd(a, b, M, solver='ortools')
-
-
 def test_emd_invalid_solver_raises():
     a, b, M = _problem(5, 5)
     with pytest.raises(ValueError):
@@ -166,3 +161,69 @@ def test_emd_cost_sparsity_threshold_drops_edges():
     G = sparse_ot.emd(a, b, M, cost_sparsity_threshold=0.2)
     np.testing.assert_allclose(G.sum(axis=1), a, atol=1e-9)
     np.testing.assert_allclose(G.sum(axis=0), b, atol=1e-9)
+
+
+def test_emd_ortools_override_dense():
+    """solver='ortools' on a dense problem matches POT cost to 1e-4."""
+    pytest.importorskip("ortools.graph.python.min_cost_flow")
+    a, b, M = _problem(8, 8)
+    cost_sot = sparse_ot.emd2(a, b, M, solver='ortools')
+    cost_pot = ot.emd2(a, b, M)
+    rel_err = abs(cost_sot - cost_pot) / abs(cost_pot)
+    assert rel_err < 1e-4
+
+
+def test_emd_ortools_scipy_sparse_input():
+    """solver='ortools' with scipy CSR cost matrix returns scipy CSR plan."""
+    pytest.importorskip("ortools.graph.python.min_cost_flow")
+    import scipy.sparse
+    rng = np.random.default_rng(123)
+    n = 8
+    a = rng.dirichlet(np.ones(n))
+    b = rng.dirichlet(np.ones(n))
+    M_dense = rng.uniform(0.1, 1.0, (n, n))
+    M_sp = scipy.sparse.csr_matrix(M_dense)
+    G = sparse_ot.emd(a, b, M_sp, solver='ortools')
+    assert scipy.sparse.issparse(G)
+    np.testing.assert_allclose(
+        np.asarray(G.sum(axis=1)).ravel(), a, atol=1e-6
+    )
+    np.testing.assert_allclose(
+        np.asarray(G.sum(axis=0)).ravel(), b, atol=1e-6
+    )
+
+
+def test_emd_ortools_cost_scale_passes_through():
+    """ortools_cost_scale parameter reaches the solver."""
+    pytest.importorskip("ortools.graph.python.min_cost_flow")
+    a, b, M = _problem(6, 6)
+    cost_default = sparse_ot.emd2(a, b, M, solver='ortools')
+    cost_higher  = sparse_ot.emd2(a, b, M, solver='ortools',
+                                   ortools_cost_scale=1e9)
+    assert np.isfinite(cost_default) and np.isfinite(cost_higher)
+
+
+import scipy.sparse
+from sparse_ot.feasibility import InfeasibleProblemError
+
+
+def test_emd_raises_on_infeasible_sparse_support():
+    # Singleton components: source 0 has 0.5 mass, but only edge (0,0) exists
+    # and target 0 has only 0.1 mass demand. Imbalanced component → infeasible.
+    rows = [0, 1, 1, 2, 2]
+    cols = [0, 1, 2, 1, 2]
+    data = [1.0] * 5
+    M = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(3, 3))
+    a = np.array([0.5, 0.25, 0.25])
+    b = np.array([0.1, 0.45, 0.45])
+    with pytest.raises(InfeasibleProblemError):
+        emd(a, b, M, solver='lemon')
+
+
+def test_emd_skips_check_for_dense_M():
+    # Dense M (numpy ndarray) — feasibility check is skipped for dense input.
+    # Use a fully non-zero cost matrix so no edges are dropped by to_csr.
+    a = np.array([0.5, 0.5])
+    b = np.array([0.3, 0.7])
+    M = np.array([[0.5, 1.0], [1.0, 0.5]])
+    emd(a, b, M)  # must not raise

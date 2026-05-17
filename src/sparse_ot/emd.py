@@ -1,3 +1,4 @@
+# src/sparse_ot/emd.py
 import numpy as np
 import scipy.sparse
 
@@ -7,7 +8,8 @@ from sparse_ot.routing import select_solver
 
 
 def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
-        cost_sparsity_threshold=0.0, solver=None):
+        cost_sparsity_threshold=0.0, solver=None,
+        ortools_cost_scale=1e6):
     """Transport plan between distributions a and b with cost matrix M.
 
     Drop-in replacement for ot.emd(). Dense numpy input returns a dense numpy
@@ -23,6 +25,7 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
     center_dual : bool — accepted for POT compatibility; not used
     cost_sparsity_threshold : float — dense M only: drop |M[i,j]| <= threshold
     solver : str or None — 'bonneel', 'lemon', 'ortools', or None (auto)
+    ortools_cost_scale : float — int64 scale applied to float costs by OR-Tools
 
     Returns
     -------
@@ -35,11 +38,6 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
     if solver not in (None, 'bonneel', 'lemon', 'ortools'):
         raise ValueError(
             f"solver={solver!r} must be None, 'bonneel', 'lemon', or 'ortools'"
-        )
-    if solver == 'ortools':
-        raise NotImplementedError(
-            "'ortools' solver is not yet implemented. "
-            "Use None, 'bonneel', or 'lemon'."
         )
 
     dense_input = not scipy.sparse.issparse(M)
@@ -55,6 +53,12 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
 
     selected = select_solver(n, m, nnz, solver)
 
+    # Feasibility check (spec §2/§3): sparse-input paths only, skipped when
+    # Bonneel is selected (Bonneel solves on dense M and rejects infeasibility itself).
+    if not dense_input and selected != 'bonneel':
+        from sparse_ot.feasibility import check_feasibility
+        check_feasibility(a, b, row_ptr, col_idx)
+
     if selected == 'bonneel':
         if dense_input:
             M_dense = np.asarray(M, dtype=np.float64, order='C')
@@ -65,11 +69,19 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
             return G, {}
         return G
 
-    # LEMON path
-    from sparse_ot._ext import _lemon
-    rows, cols, vals = _lemon.solve_sparse(
-        a, b, row_ptr, col_idx, costs, numItermax
-    )
+    if selected == 'lemon':
+        from sparse_ot._ext import _lemon
+        rows, cols, vals = _lemon.solve_sparse(
+            a, b, row_ptr, col_idx, costs, numItermax
+        )
+    else:
+        # selected == 'ortools'
+        from sparse_ot.ortools_solver import solve_ortools
+        rows, cols, vals = solve_ortools(
+            a, b, row_ptr, col_idx, costs,
+            ortools_cost_scale=ortools_cost_scale,
+        )
+
     G_sp = scipy.sparse.csr_matrix((vals, (rows, cols)), shape=(n, m))
     G = G_sp.toarray() if dense_input else G_sp
 
@@ -79,29 +91,15 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
 
 
 def emd2(a, b, M, numItermax=100000, log=False, return_matrix=False,
-         cost_sparsity_threshold=0.0, solver=None):
+         cost_sparsity_threshold=0.0, solver=None,
+         ortools_cost_scale=1e6):
     """OT cost between distributions a and b with cost matrix M.
 
     Drop-in replacement for ot.emd2(). Returns a float scalar.
-
-    Parameters
-    ----------
-    a : array-like, shape (n,)
-    b : array-like, shape (m,)
-    M : array-like (n, m) or scipy sparse (n, m)
-    numItermax : int
-    log : bool
-    return_matrix : bool — if True, also return the transport plan G
-    cost_sparsity_threshold : float
-    solver : str or None
-
-    Returns
-    -------
-    cost : float
-    G : ndarray or scipy CSR — only if return_matrix=True
     """
     G = emd(a, b, M, numItermax=numItermax, log=False,
-            cost_sparsity_threshold=cost_sparsity_threshold, solver=solver)
+            cost_sparsity_threshold=cost_sparsity_threshold,
+            solver=solver, ortools_cost_scale=ortools_cost_scale)
 
     if scipy.sparse.issparse(M):
         M_arr = np.asarray(M.toarray(), dtype=np.float64)

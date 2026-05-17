@@ -153,6 +153,20 @@ def _time_lemon(a, b, M, n_runs: int) -> dict:
     return {"wall_time_s": float(np.median(times)), "n_runs": n_runs}
 
 
+def _densify_with_penalty(M):
+    """Materialize a sparse cost matrix as dense, with absent cells set to a
+    large finite penalty so a dense solver (Bonneel, POT) cannot route mass
+    through absent edges. Returns a contiguous float64 array."""
+    if not scipy.sparse.issparse(M):
+        return np.asarray(M, dtype=np.float64, order='C')
+    coo = M.tocoo()
+    edge_mask = np.zeros(M.shape, dtype=bool)
+    edge_mask[coo.row, coo.col] = True
+    real_max = float(M.data.max()) if M.nnz else 1.0
+    big = real_max * (M.shape[0] * M.shape[1] + 1)
+    return np.where(edge_mask, M.toarray(), big).astype(np.float64, copy=False, order='C')
+
+
 def _time_solver(solver: str, a, b, M, n_runs: int) -> dict:
     """Return wall_time_median_s and peak_memory_mb for `solver` on (a, b, M).
     Bonneel/OR-Tools/POT run in-process; LEMON runs in a subprocess with
@@ -165,16 +179,18 @@ def _time_solver(solver: str, a, b, M, n_runs: int) -> dict:
 
     import ot
     from sparse_ot import emd2
+    # Bonneel and POT solve on dense M; sparse inputs need absent cells
+    # filled with a large penalty so they don't route through "free" zeros.
+    M_call = _densify_with_penalty(M) if solver in ('bonneel', 'pot_reference') else M
     times = []
     tracemalloc.start()
     for _ in range(n_runs):
         gc.collect()
         t0 = time.perf_counter()
         if solver == 'pot_reference':
-            M_dense = M.toarray() if scipy.sparse.issparse(M) else np.asarray(M)
-            _ = ot.emd2(a, b, M_dense)
+            _ = ot.emd2(a, b, M_call)
         else:
-            _ = emd2(a, b, M, solver=solver)
+            _ = emd2(a, b, M_call, solver=solver)
         times.append(time.perf_counter() - t0)
     _, peak_bytes = tracemalloc.get_traced_memory()
     tracemalloc.stop()
@@ -236,7 +252,8 @@ def _accuracy_for_cell(solver: str, a, b, M, cost_ref):
             return {"error": err}
     else:
         try:
-            G = emd(a, b, M, solver=solver)
+            M_call = _densify_with_penalty(M) if solver == 'bonneel' else M
+            G = emd(a, b, M_call, solver=solver)
         except Exception as e:
             return {"error": f"{type(e).__name__}: {e}"}
 

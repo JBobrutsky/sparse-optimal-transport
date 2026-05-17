@@ -227,3 +227,14 @@ def test_emd_skips_check_for_dense_M():
     b = np.array([0.3, 0.7])
     M = np.array([[0.5, 1.0], [1.0, 0.5]])
     emd(a, b, M)  # must not raise
+
+
+def test_emd_bonneel_on_sparse_raises():
+    # Bonneel cannot tell "absent edge" from "real edge with cost 0" once a
+    # sparse M is materialized via toarray() — silently returns degenerate
+    # zero-cost plans. Refuse the combination at the API boundary.
+    a = np.array([0.5, 0.5])
+    b = np.array([0.5, 0.5])
+    M_sp = scipy.sparse.csr_matrix(np.array([[0.5, 1.0], [1.0, 0.5]]))
+    with pytest.raises(ValueError, match="Bonneel.*sparse"):
+        emd(a, b, M_sp, solver='bonneel')

@@ -53,17 +53,25 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
 
     selected = select_solver(n, m, nnz, solver)
 
-    # Feasibility check (spec §2/§3): sparse-input paths only, skipped when
-    # Bonneel is selected (Bonneel solves on dense M and rejects infeasibility itself).
-    if not dense_input and selected != 'bonneel':
+    if selected == 'bonneel' and not dense_input:
+        # M.toarray() fills absent cells with 0, which Bonneel cannot
+        # distinguish from real zero-cost edges — it routes all mass through
+        # the "free" absent cells and returns a degenerate zero-cost plan.
+        raise ValueError(
+            "Bonneel does not support sparse cost matrices: M.toarray() would "
+            "fill absent edges with 0, which Bonneel treats as free edges and "
+            "routes through silently. Use solver='lemon' or solver='ortools' "
+            "for sparse M, or pass a dense numpy array with +inf in absent cells."
+        )
+
+    # Feasibility check (spec §2/§3): sparse-input paths only. By this point
+    # Bonneel + sparse has already been refused above.
+    if not dense_input:
         from sparse_ot.feasibility import check_feasibility
         check_feasibility(a, b, row_ptr, col_idx)
 
     if selected == 'bonneel':
-        if dense_input:
-            M_dense = np.asarray(M, dtype=np.float64, order='C')
-        else:
-            M_dense = np.asarray(M.toarray(), dtype=np.float64, order='C')
+        M_dense = np.asarray(M, dtype=np.float64, order='C')
         G = _bonneel.solve_dense(a, b, M_dense, numItermax)
         if log:
             return G, {}

@@ -61,34 +61,34 @@ Deliberately **not** implemented (not called by the simplex on the paths we use)
 
 `source(a)` uses binary search on `row_ptr` (O(log n) per call). It is only called during `init()`, once per arc, total O(k log n) — negligible vs. one simplex iteration. An explicit `row_of_arc[k]` array would make it O(1) but cost an extra O(k) ints; not worth it unless profiling says otherwise.
 
-### `src/cpp/bonneel_solver.cpp` (extend, do not rewrite)
+### `src/cpp/bonneel_solver.cpp` (extend both entry points)
 
-Add a second pybind entry point:
+**Both `solve_dense` and `solve_sparse` are modified to also return the dual potentials.** `NetworkSimplexSimple` already computes them; we expose `_pi[0..n-1]` as `u` (source duals) and `_pi[n..n+m-1]` as `v` (sink duals) via the existing `potential(node)` accessor (`network_simplex_simple.h:1033`).
 
 ```cpp
-std::tuple<py::array_t<int>, py::array_t<int>, py::array_t<double>>
-solve_sparse(
-    py::array_t<double> a,
-    py::array_t<double> b,
-    py::array_t<int>    row_ptr,    // length n+1
-    py::array_t<int>    col_idx,    // length k
-    py::array_t<double> costs,      // length k
-    int numItermax
-);
+// new return type for solve_dense: (G, u, v)
+std::tuple<py::array_t<double>, py::array_t<double>, py::array_t<double>>
+solve_dense(a, b, M, numItermax);
+
+// new return type for solve_sparse: (rows, cols, vals, u, v)
+std::tuple<py::array_t<int>, py::array_t<int>, py::array_t<double>,
+           py::array_t<double>, py::array_t<double>>
+solve_sparse(a, b, row_ptr, col_idx, costs, numItermax);
 ```
 
-Signature mirrors the deleted `_lemon.solve_sparse` so the Python call site stays symmetric with the dense path. Body:
+Sign convention: Bonneel's reduced cost is `c_ij + pi[i] - pi[j]` (`network_simplex_simple.h:488`). To match POT's `u[i] + v[j] <= M[i,j]` convention, emit `u[i] = -pi[i]` and `v[j] = pi[n+j]`. (Verify against POT during implementation; flip signs if needed.)
+
+Sparse-path body:
 
 1. Build `BipartiteSparseDigraph di(n, m, row_ptr, col_idx)`.
 2. `NetworkSimplexSimple<BipartiteSparseDigraph, double, double, int64_t> net(di, true, n+m, k, numItermax);`
 3. `net.supplyMap(a, n, neg_b, m);` — same negate-sink trick as `solve_dense`.
 4. For `i in 0..k-1`: `net.setCost(di.arcFromId(i), costs[i]);`
-5. `net.run();` — ignore the `INFEASIBLE` return; marginals are validated Python-side. (Same accepted behavior as the existing dense path.)
-6. Build output: for `i in 0..k-1`, if `net.flow(arc i) > eps`, emit `(source(i), col_idx[i], flow(i))`.
+5. `net.run();` — ignore the `INFEASIBLE` return; marginals are validated Python-side.
+6. Build flow output: for `i in 0..k-1`, if `net.flow(arc i) > eps`, emit `(source(i), col_idx[i], flow(i))`.
+7. Build duals: `u[i] = -net.potential(node i)` for `i in 0..n-1`; `v[j] = net.potential(node n+j)` for `j in 0..m-1`.
 
-`solve_dense` is untouched.
-
-### `src/sparse_ot/emd.py` (simplify dramatically)
+### `src/sparse_ot/emd.py` (simplify dramatically, plumb duals)
 
 ```python
 def emd(a, b, M, numItermax=100000, log=False, center_dual=True):
@@ -100,28 +100,46 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True):
     if scipy.sparse.issparse(M):
         row_ptr, col_idx, costs, n, m, _ = to_csr(M, 0.0)
         check_feasibility(a, b, row_ptr, col_idx)
-        rows, cols, vals = _bonneel.solve_sparse(
+        rows, cols, vals, u, v = _bonneel.solve_sparse(
             a, b, row_ptr, col_idx, costs, numItermax
         )
         G = scipy.sparse.csr_matrix((vals, (rows, cols)), shape=(n, m))
     else:
         M_dense = np.ascontiguousarray(M, dtype=np.float64)
-        G = _bonneel.solve_dense(a, b, M_dense, numItermax)
+        G, u, v = _bonneel.solve_dense(a, b, M_dense, numItermax)
 
-    return (G, {}) if log else G
+    if center_dual:
+        shift = u.mean()
+        u = u - shift
+        v = v + shift
+
+    if log:
+        cost = float((G.multiply(M).sum()) if scipy.sparse.issparse(G)
+                     else np.sum(G * np.asarray(M)))
+        return G, {"cost": cost, "u": u, "v": v,
+                   "warning": None, "result_code": 1}
+    return G
 
 
 def emd2(a, b, M, numItermax=100000, log=False, return_matrix=False):
+    if log or return_matrix:
+        G, info = emd(a, b, M, numItermax=numItermax, log=True)
+        cost = info["cost"]
+        if return_matrix:
+            info = {**info, "G": G}
+            return (cost, info) if log else (cost, G)
+        return (cost, info) if log else cost
     G = emd(a, b, M, numItermax=numItermax, log=False)
     M_arr = M.toarray() if scipy.sparse.issparse(M) else np.asarray(M, dtype=np.float64)
-    cost = float((G.multiply(M_arr)).sum()) if scipy.sparse.issparse(G) else float(np.sum(G * M_arr))
-
-    if return_matrix:
-        return (cost, G, {}) if log else (cost, G)
-    return (cost, {}) if log else cost
+    return float((G.multiply(M_arr)).sum()) if scipy.sparse.issparse(G) \
+        else float(np.sum(G * M_arr))
 ```
 
-`center_dual`, `log` accepted for POT compat. No `solver=`, no `cost_sparsity_threshold=`, no `ortools_cost_scale=`.
+POT-compatible behavior:
+
+- `log=True` returns `(G, log_dict)` with keys `cost`, `u`, `v`, `warning`, `result_code` (matching POT's keys exactly).
+- `center_dual=True` (POT default) applies the gauge shift `u -= u.mean(); v += u.mean()` so `u + v` is unchanged and `u` has zero mean. When `False`, raw simplex potentials are returned.
+- No `solver=`, no `cost_sparsity_threshold=`, no `ortools_cost_scale=`.
 
 ### Removals
 
@@ -161,7 +179,9 @@ For a (10k × 10k, k = 100k) problem: ≈ a few MB, vs. ≈ 800 MB for the dense
 - Property: random sparse problems with **full** support; sparse Bonneel cost must equal dense Bonneel cost within 1e-9.
 - Property: random sparse problems with k-NN support; assert marginals, assert optimal cost ≤ dense cost on the same support (tautology, but catches regressions).
 - Memory smoke test: (10k × 10k, k = 100k) problem; assert RSS peak < 200 MB via `resource.getrusage`.
-- Existing Bonneel-dense tests stay green unchanged.
+- **Dual potentials:** for every test, assert `u[i] + v[j] <= M[i,j] + eps` for all i,j (feasibility) and `u[i] + v[j] == M[i,j]` within tolerance on every arc carrying positive flow (complementary slackness). Assert `cost == a @ u + b @ v` within tolerance (strong duality).
+- **POT compat:** `tests/test_pot_compat.py` — for a small dense problem, call `ot.emd(..., log=True)` and our `emd(..., log=True)`; assert the same cost, marginals, and `u`, `v` matching up to a gauge constant (i.e. `u_ours - u_pot` is constant across i, and same for v with opposite sign). With `center_dual=True` the constant should be zero.
+- Existing Bonneel-dense tests stay green; their assertions extend to also check the returned duals.
 
 ## Benchmarks
 

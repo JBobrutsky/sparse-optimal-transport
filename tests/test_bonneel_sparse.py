@@ -119,3 +119,35 @@ def test_sparse_memory_scales_with_k():
     bytes_per_unit = 1.0 if sys.platform == "darwin" else 1024.0
     delta_mb = (rss_after - rss_before) * bytes_per_unit / (1024.0 * 1024.0)
     assert delta_mb < 200, f"RSS grew by {delta_mb:.1f} MB, expected < 200 MB"
+
+
+def test_default_num_iter_converges_at_16k():
+    """n=16k, k=128 hit the old 100k-iter cap and silently returned bad flows.
+
+    Regression test for the convergence cap bumping introduced after the mid
+    benchmark surfaced marginal violations at ~1e-5.
+    """
+    from benchmarks.problems import generate_knn_grid_problem
+    import sparse_ot
+    a, b, M, _ = generate_knn_grid_problem(n=16_000, k=128, seed=0)
+    G, info = sparse_ot.emd(a, b, M, log=True)
+    fb_a = float(np.max(np.abs(np.asarray(G.sum(axis=1)).ravel() - a)))
+    fb_b = float(np.max(np.abs(np.asarray(G.sum(axis=0)).ravel() - b)))
+    assert max(fb_a, fb_b) < 1e-9
+    assert info["result_code"] == 1
+    assert info["warning"] is None
+
+
+def test_warns_and_sets_result_code_on_truncation():
+    """Passing an artificially low numItermax forces non-convergence; verify
+    we emit RuntimeWarning and report result_code=0 with a populated warning."""
+    import warnings as _warnings
+    from benchmarks.problems import generate_knn_grid_problem
+    import sparse_ot
+    a, b, M, _ = generate_knn_grid_problem(n=16_000, k=128, seed=0)
+    with _warnings.catch_warnings(record=True) as ws:
+        _warnings.simplefilter("always")
+        _, info = sparse_ot.emd(a, b, M, numItermax=100_000, log=True)
+    assert info["result_code"] == 0
+    assert info["warning"] is not None
+    assert any(issubclass(w.category, RuntimeWarning) for w in ws)

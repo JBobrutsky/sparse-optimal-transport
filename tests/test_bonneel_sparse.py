@@ -115,7 +115,7 @@ def test_sparse_memory_scales_with_k():
     )
     rss_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
-    # ru_maxrss is KB on Linux, bytes on macOS. Normalize to MB.
-    scale = 1024.0 if sys.platform == "darwin" else 1.0
-    delta_mb = (rss_after - rss_before) * scale / (1024.0 * 1024.0)
+    # ru_maxrss is KB on Linux, bytes on macOS.
+    bytes_per_unit = 1.0 if sys.platform == "darwin" else 1024.0
+    delta_mb = (rss_after - rss_before) * bytes_per_unit / (1024.0 * 1024.0)
     assert delta_mb < 200, f"RSS grew by {delta_mb:.1f} MB, expected < 200 MB"

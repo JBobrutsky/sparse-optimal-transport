@@ -82,3 +82,40 @@ def test_solve_sparse_knn_support():
     ).toarray()
     np.testing.assert_allclose(G.sum(axis=1), a, atol=1e-9)
     np.testing.assert_allclose(G.sum(axis=0), b, atol=1e-9)
+
+
+import resource
+import sys
+
+
+@pytest.mark.slow
+def test_sparse_memory_scales_with_k():
+    """10k x 10k with k=100k must fit comfortably under O(n*m) memory."""
+    rng = np.random.default_rng(42)
+    n = m = 10_000
+    k_per_row = 10
+    k = n * k_per_row
+
+    a = rng.dirichlet(np.ones(n))
+    b = rng.dirichlet(np.ones(m))
+    a = a / a.sum()
+    b = b / b.sum()
+
+    cols = np.stack([
+        rng.choice(m, size=k_per_row, replace=False) for _ in range(n)
+    ], axis=0)
+    cols.sort(axis=1)
+    row_ptr = (np.arange(n + 1) * k_per_row).astype(np.int32)
+    col_idx = cols.ravel().astype(np.int32)
+    costs   = rng.uniform(0.0, 1.0, size=k).astype(np.float64)
+
+    rss_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    rows, cols_o, vals, u, v = _bonneel.solve_sparse(
+        a, b, row_ptr, col_idx, costs, 1_000_000
+    )
+    rss_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+
+    # ru_maxrss is KB on Linux, bytes on macOS. Normalize to MB.
+    scale = 1024.0 if sys.platform == "darwin" else 1.0
+    delta_mb = (rss_after - rss_before) * scale / (1024.0 * 1024.0)
+    assert delta_mb < 200, f"RSS grew by {delta_mb:.1f} MB, expected < 200 MB"

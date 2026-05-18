@@ -30,3 +30,6 @@ editable.verbose = false
 [tool.pytest.ini_options]
 timeout = 60
 pythonpath = ["."]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]

@@ -2,51 +2,51 @@
   "200": {
     "4": {
       "bonneel": {
-        "wall_time_s": 0.009332666173577309,
-        "peak_memory_mb": 0.7739372253417969,
+        "wall_time_s": 0.009641667827963829,
+        "peak_memory_mb": 0.7793369293212891,
         "n_runs": 1,
         "nnz": 800
       },
       "lemon": {
-        "wall_time_s": 0.14917133189737797,
+        "wall_time_s": 0.15427728928625584,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 800
       },
       "ortools": {
-        "wall_time_s": 0.1716888751834631,
-        "peak_memory_mb": 0.3906574249267578,
+        "wall_time_s": 0.09639087691903114,
+        "peak_memory_mb": 0.39133739471435547,
         "n_runs": 1,
         "nnz": 800
       },
       "pot_reference": {
-        "wall_time_s": 0.004394041374325752,
-        "peak_memory_mb": 0.6193809509277344,
+        "wall_time_s": 0.004579499363899231,
+        "peak_memory_mb": 0.6188926696777344,
         "n_runs": 1,
         "nnz": 800
       }
     },
     "20": {
       "bonneel": {
-        "wall_time_s": 0.008808623999357224,
-        "peak_memory_mb": 0.7664098739624023,
+        "wall_time_s": 0.008924959227442741,
+        "peak_memory_mb": 0.7715215682983398,
         "n_runs": 1,
         "nnz": 4000
       },
       "lemon": {
-        "wall_time_s": 0.15760137513279915,
+        "wall_time_s": 0.15352912619709969,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 4000
       },
       "ortools": {
-        "wall_time_s": 0.0546941664069891,
+        "wall_time_s": 0.056030916050076485,
         "peak_memory_mb": 0.3277397155761719,
         "n_runs": 1,
         "nnz": 4000
       },
       "pot_reference": {
-        "wall_time_s": 0.003968250006437302,
+        "wall_time_s": 0.004138249903917313,
         "peak_memory_mb": 0.6182136535644531,
         "n_runs": 1,
         "nnz": 4000
@@ -54,25 +54,25 @@
     },
     "32": {
       "bonneel": {
-        "wall_time_s": 0.008896376937627792,
-        "peak_memory_mb": 0.7664098739624023,
+        "wall_time_s": 0.009257709607481956,
+        "peak_memory_mb": 0.7715215682983398,
         "n_runs": 1,
         "nnz": 6400
       },
       "lemon": {
-        "wall_time_s": 0.14245362393558025,
+        "wall_time_s": 0.18024529330432415,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 6400
       },
       "ortools": {
-        "wall_time_s": 0.08184358291327953,
+        "wall_time_s": 0.08247841894626617,
         "peak_memory_mb": 0.37139129638671875,
         "n_runs": 1,
         "nnz": 6400
       },
       "pot_reference": {
-        "wall_time_s": 0.0048239585012197495,
+        "wall_time_s": 0.004896664991974831,
         "peak_memory_mb": 0.6182136535644531,
         "n_runs": 1,
         "nnz": 6400
@@ -80,25 +80,25 @@
     },
     "200": {
       "bonneel": {
-        "wall_time_s": 0.00696987472474575,
-        "peak_memory_mb": 0.7664098739624023,
+        "wall_time_s": 0.007214000448584557,
+        "peak_memory_mb": 0.7715215682983398,
         "n_runs": 1,
         "nnz": 40000
       },
       "lemon": {
-        "wall_time_s": 0.4098124988377094,
+        "wall_time_s": 0.4056256674230099,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 40000
       },
       "ortools": {
-        "wall_time_s": 0.5453645419329405,
+        "wall_time_s": 0.5573420412838459,
         "peak_memory_mb": 2.1978683471679688,
         "n_runs": 1,
         "nnz": 40000
       },
       "pot_reference": {
-        "wall_time_s": 0.0017025433480739594,
+        "wall_time_s": 0.0015745814889669418,
         "peak_memory_mb": 0.6182136535644531,
         "n_runs": 1,
         "nnz": 40000
@@ -108,25 +108,25 @@
   "1000": {
     "4": {
       "bonneel": {
-        "wall_time_s": 0.22768637537956238,
-        "peak_memory_mb": 19.083121299743652,
+        "wall_time_s": 0.23797420784831047,
+        "peak_memory_mb": 19.10654354095459,
         "n_runs": 1,
         "nnz": 4000
       },
       "lemon": {
-        "wall_time_s": 0.687776044011116,
+        "wall_time_s": 0.7138076238334179,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 4000
       },
       "ortools": {
-        "wall_time_s": 0.2732056677341461,
+        "wall_time_s": 0.2760425414890051,
         "peak_memory_mb": 7.715847015380859,
         "n_runs": 1,
         "nnz": 4000
       },
       "pot_reference": {
-        "wall_time_s": 0.30379941686987877,
+        "wall_time_s": 0.3040628731250763,
         "peak_memory_mb": 15.286487579345703,
         "n_runs": 1,
         "nnz": 4000
@@ -134,25 +134,25 @@
     },
     "32": {
       "bonneel": {
-        "wall_time_s": 0.21931766532361507,
-        "peak_memory_mb": 19.083121299743652,
+        "wall_time_s": 0.22231754288077354,
+        "peak_memory_mb": 19.10654354095459,
         "n_runs": 1,
         "nnz": 32000
       },
       "lemon": {
-        "wall_time_s": 1.4570543728768826,
+        "wall_time_s": 1.4663510844111443,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 32000
       },
       "ortools": {
-        "wall_time_s": 0.7865264154970646,
+        "wall_time_s": 0.7861260436475277,
         "peak_memory_mb": 7.715831756591797,
         "n_runs": 1,
         "nnz": 32000
       },
       "pot_reference": {
-        "wall_time_s": 0.33174516819417477,
+        "wall_time_s": 0.33089328929781914,
         "peak_memory_mb": 15.286487579345703,
         "n_runs": 1,
         "nnz": 32000
@@ -160,25 +160,25 @@
     },
     "100": {
       "bonneel": {
-        "wall_time_s": 0.25016287714242935,
-        "peak_memory_mb": 19.083121299743652,
+        "wall_time_s": 0.2519660834223032,
+        "peak_memory_mb": 19.10654354095459,
         "n_runs": 1,
         "nnz": 100000
       },
       "lemon": {
-        "wall_time_s": 5.477393459528685,
+        "wall_time_s": 5.5727930422872305,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 100000
       },
       "ortools": {
-        "wall_time_s": 2.6390776224434376,
+        "wall_time_s": 2.6332371663302183,
         "peak_memory_mb": 7.715831756591797,
         "n_runs": 1,
         "nnz": 100000
       },
       "pot_reference": {
-        "wall_time_s": 0.4047704581171274,
+        "wall_time_s": 0.4030225835740566,
         "peak_memory_mb": 15.286487579345703,
         "n_runs": 1,
         "nnz": 100000
@@ -186,25 +186,25 @@
     },
     "1000": {
       "bonneel": {
-        "wall_time_s": 0.07361099869012833,
-        "peak_memory_mb": 19.083121299743652,
+        "wall_time_s": 0.07511445879936218,
+        "peak_memory_mb": 19.10654354095459,
         "n_runs": 1,
         "nnz": 1000000
       },
       "lemon": {
-        "wall_time_s": 20.189596500247717,
+        "wall_time_s": 21.298298954963684,
         "n_runs": 1,
         "peak_memory_mb": null,
         "nnz": 1000000
       },
       "ortools": {
-        "wall_time_s": 26.84725466929376,
+        "wall_time_s": 27.047999624162912,
         "peak_memory_mb": 54.45930480957031,
         "n_runs": 1,
         "nnz": 1000000
       },
       "pot_reference": {
-        "wall_time_s": 0.04066108167171478,
+        "wall_time_s": 0.0426191259175539,
         "peak_memory_mb": 15.286487579345703,
         "n_runs": 1,
         "nnz": 1000000

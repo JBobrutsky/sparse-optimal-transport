@@ -57,7 +57,7 @@ static int  id(Node n);              // identity
 static int64_t id(Arc a);            // identity
 ```
 
-Deliberately **not** implemented (not called by the simplex on the paths we use): `firstOut`/`nextOut`/`firstIn`/`nextIn`, `arc(s,t)`, `findArc`.
+**Implementation note (2026-05-19, during Task 3):** `firstOut`/`nextOut`/`firstIn`/`nextIn` *are* needed — `NetworkSimplexSimple::init()`'s heuristic-initial-pivots path calls them (`network_simplex_simple.h:1463-1505`). The digraph backs them with a precomputed `_arc_row_end[k]` (CSR row-end per arc) and a CSC index (`_csc_col_ptr[n2+1]`, `_csc_arc_id[k]`, `_csc_arc_pos[k]`), adding ~3·k int64 of storage — still O(k). `arc(s,t)` and `findArc` are not called and remain unimplemented.
 
 `source(a)` uses binary search on `row_ptr` (O(log n) per call). It is only called during `init()`, once per arc, total O(k log n) — negligible vs. one simplex iteration. An explicit `row_of_arc[k]` array would make it O(1) but cost an extra O(k) ints; not worth it unless profiling says otherwise.
 

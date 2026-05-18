@@ -21,8 +21,8 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
     b : array-like, shape (m,)
     M : array-like (n, m) or scipy sparse (n, m)
     numItermax : int
-    log : bool — if True, return (G, log_dict)
-    center_dual : bool — accepted for POT compatibility; not used
+    log : bool — if True, return (G, info)
+    center_dual : bool — if True, shift u/v so u has zero mean while preserving u[i] + v[j]
     cost_sparsity_threshold : float — dense M only: drop |M[i,j]| <= threshold
     solver : str or None — 'bonneel', 'lemon', 'ortools', or None (auto)
     ortools_cost_scale : float — int64 scale applied to float costs by OR-Tools
@@ -30,7 +30,7 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
     Returns
     -------
     G : ndarray (n, m) or scipy CSR (n, m)
-    (G, {}) if log=True
+    (G, info) if log=True, where info has keys cost, u, v, warning, result_code
     """
     a = np.asarray(a, dtype=np.float64).ravel()
     b = np.asarray(b, dtype=np.float64).ravel()

@@ -1,147 +1,189 @@
 {
   "200": {
     "4": {
-      "lemon": {
-        "cost": 0.6875845683540001,
-        "feasibility_a": 4.980195943138366e-13,
-        "feasibility_b": 1.0842415073403222e-11,
-        "cost_ref": 0.687584119,
-        "rel_cost_err": 6.535258560988518e-07
+      "bonneel_dense": {
+        "cost": 0.6875845674730507,
+        "feasibility_a": 1.214306433183765e-17,
+        "feasibility_b": 8.673617379884035e-18,
+        "cost_ref": 0.6875845674730504,
+        "rel_cost_err": 4.844013713274642e-16
       },
-      "ortools": {
-        "cost": 0.687584119,
-        "feasibility_a": 7.189469878807198e-10,
-        "feasibility_b": 4.999014782854083e-10,
-        "cost_ref": 0.687584119,
+      "bonneel_sparse": {
+        "cost": 0.6875845674730504,
+        "feasibility_a": 1.734723475976807e-17,
+        "feasibility_b": 1.3877787807814457e-17,
+        "cost_ref": 0.6875845674730504,
         "rel_cost_err": 0.0
+      },
+      "pot_reference": {
+        "cost": 0.6875845674730512,
+        "feasibility_a": 1.0408340855860843e-17,
+        "feasibility_b": 1.3877787807814457e-17,
+        "cost_ref": 0.6875845674730504,
+        "rel_cost_err": 1.1302698664307499e-15
       }
     },
     "20": {
-      "lemon": {
-        "cost": 1.6079043958439998,
-        "feasibility_a": 4.963030854343575e-13,
-        "feasibility_b": 6.41637524362304e-12,
-        "cost_ref": 1.6079043958439998,
+      "bonneel_dense": {
+        "cost": 1.6079043946804075,
+        "feasibility_a": 5.204170427930421e-18,
+        "feasibility_b": 1.231653667943533e-16,
+        "cost_ref": 1.6079043946804075,
         "rel_cost_err": 0.0
       },
-      "ortools": {
-        "cost": 1.607904517,
-        "feasibility_a": 4.967576489045555e-10,
-        "feasibility_b": 1.0284163754967213e-09,
-        "cost_ref": 1.6079043958439998,
-        "rel_cost_err": 7.535025119308006e-08
+      "bonneel_sparse": {
+        "cost": 1.6079043946804075,
+        "feasibility_a": 6.071532165918825e-18,
+        "feasibility_b": 1.231653667943533e-16,
+        "cost_ref": 1.6079043946804075,
+        "rel_cost_err": 0.0
+      },
+      "pot_reference": {
+        "cost": 1.607904394680408,
+        "feasibility_a": 4.336808689942018e-18,
+        "feasibility_b": 1.196959198423997e-16,
+        "cost_ref": 1.6079043946804075,
+        "rel_cost_err": 2.761913029899587e-16
       }
     },
     "32": {
-      "lemon": {
-        "cost": 3.7942413325890003,
-        "feasibility_a": 4.950484466803573e-13,
-        "feasibility_b": 3.311935361377527e-12,
-        "cost_ref": 3.794239358,
-        "rel_cost_err": 5.204176157588286e-07
+      "bonneel_dense": {
+        "cost": 3.7942413333655054,
+        "feasibility_a": 5.204170427930421e-18,
+        "feasibility_b": 4.336808689942018e-18,
+        "cost_ref": 3.7942413333655036,
+        "rel_cost_err": 4.681718117873689e-16
       },
-      "ortools": {
-        "cost": 3.794239358,
-        "feasibility_a": 8.235306237294737e-09,
-        "feasibility_b": 4.958429907983564e-10,
-        "cost_ref": 3.794239358,
+      "bonneel_sparse": {
+        "cost": 3.7942413333655036,
+        "feasibility_a": 2.6020852139652106e-18,
+        "feasibility_b": 5.204170427930421e-18,
+        "cost_ref": 3.7942413333655036,
+        "rel_cost_err": 0.0
+      },
+      "pot_reference": {
+        "cost": 3.7942413333655036,
+        "feasibility_a": 5.204170427930421e-18,
+        "feasibility_b": 4.336808689942018e-18,
+        "cost_ref": 3.7942413333655036,
         "rel_cost_err": 0.0
       }
     },
     "200": {
-      "lemon": {
-        "cost": 0.460652039471,
-        "feasibility_a": 4.979549758643564e-13,
-        "feasibility_b": 1.0734061209327628e-12,
-        "cost_ref": 0.460652039471,
+      "bonneel_dense": {
+        "cost": 0.46065204031411944,
+        "feasibility_a": 4.336808689942018e-18,
+        "feasibility_b": 2.168404344971009e-17,
+        "cost_ref": 0.46065204031411944,
         "rel_cost_err": 0.0
       },
-      "ortools": {
-        "cost": 0.46065238499999994,
-        "feasibility_a": 4.984824428233559e-10,
-        "feasibility_b": 3.283926594196962e-09,
-        "cost_ref": 0.460652039471,
-        "rel_cost_err": 7.500867691032998e-07
+      "bonneel_sparse": {
+        "cost": 0.46065204031411944,
+        "feasibility_a": 4.336808689942018e-18,
+        "feasibility_b": 2.168404344971009e-17,
+        "cost_ref": 0.46065204031411944,
+        "rel_cost_err": 0.0
       },
       "pot_reference": {
-        "cost": 0.4606520403141215,
-        "feasibility_a": 0.0,
-        "feasibility_b": 0.0,
-        "cost_ref": 0.460652039471,
-        "rel_cost_err": 1.8302784852858002e-09
+        "cost": 0.46065204031412144,
+        "feasibility_a": 2.6020852139652106e-18,
+        "feasibility_b": 1.5612511283791264e-17,
+        "cost_ref": 0.46065204031411944,
+        "rel_cost_err": 4.338201656422857e-15
       }
     }
   },
   "1000": {
     "4": {
-      "lemon": {
-        "cost": 0.649297388188,
-        "feasibility_a": 4.988654888488098e-13,
-        "feasibility_b": 4.99855799113158e-13,
-        "cost_ref": 0.649297388188,
+      "bonneel_dense": {
+        "cost": 0.6492973881564582,
+        "feasibility_a": 4.336808689942018e-18,
+        "feasibility_b": 1.1275702593849246e-16,
+        "cost_ref": 0.6492973881564241,
+        "rel_cost_err": 5.249342978687767e-14
+      },
+      "bonneel_sparse": {
+        "cost": 0.6492973881564241,
+        "feasibility_a": 5.204170427930421e-18,
+        "feasibility_b": 1.1232334506949826e-16,
+        "cost_ref": 0.6492973881564241,
         "rel_cost_err": 0.0
       },
-      "ortools": {
-        "cost": 0.649303111,
-        "feasibility_a": 4.998900182684451e-10,
-        "feasibility_b": 6.284042139838124e-09,
-        "cost_ref": 0.649297388188,
-        "rel_cost_err": 8.81385341166208e-06
+      "pot_reference": {
+        "cost": 0.6492973881564763,
+        "feasibility_a": 4.336808689942018e-18,
+        "feasibility_b": 1.12865446155741e-16,
+        "cost_ref": 0.6492973881564241,
+        "rel_cost_err": 8.036453420140881e-14
       }
     },
     "32": {
-      "lemon": {
-        "cost": 1.5719548167919999,
-        "feasibility_a": 4.999469805158641e-13,
-        "feasibility_b": 2.924862305478393e-11,
-        "cost_ref": 1.5719548167919999,
+      "bonneel_dense": {
+        "cost": 1.571954831566929,
+        "feasibility_a": 4.228388472693467e-18,
+        "feasibility_b": 2.3852447794681098e-18,
+        "cost_ref": 1.5719548315669254,
+        "rel_cost_err": 2.2600609174368924e-15
+      },
+      "bonneel_sparse": {
+        "cost": 1.5719548315669254,
+        "feasibility_a": 4.336808689942018e-18,
+        "feasibility_b": 2.168404344971009e-18,
+        "cost_ref": 1.5719548315669254,
         "rel_cost_err": 0.0
       },
-      "ortools": {
-        "cost": 1.57195492,
-        "feasibility_a": 5.820227078501966e-09,
-        "feasibility_b": 4.99810474908699e-10,
-        "cost_ref": 1.5719548167919999,
-        "rel_cost_err": 6.56558312259929e-08
+      "pot_reference": {
+        "cost": 1.5719548315669287,
+        "feasibility_a": 4.336808689942018e-18,
+        "feasibility_b": 2.6020852139652106e-18,
+        "cost_ref": 1.5719548315669254,
+        "rel_cost_err": 2.1188071100970866e-15
       }
     },
     "100": {
-      "lemon": {
-        "cost": 18.783023008702997,
-        "feasibility_a": 4.988921602222529e-13,
-        "feasibility_b": 3.371736158504224e-12,
-        "cost_ref": 18.783023008702997,
+      "bonneel_dense": {
+        "cost": 18.783023028303166,
+        "feasibility_a": 1.734723475976807e-18,
+        "feasibility_b": 7.48099499014998e-18,
+        "cost_ref": 18.783023028303163,
+        "rel_cost_err": 1.8914493547961375e-16
+      },
+      "bonneel_sparse": {
+        "cost": 18.783023028303163,
+        "feasibility_a": 1.3010426069826053e-18,
+        "feasibility_b": 7.589415207398531e-18,
+        "cost_ref": 18.783023028303163,
         "rel_cost_err": 0.0
       },
-      "ortools": {
-        "cost": 18.783000754,
-        "feasibility_a": 1.3087008645502017e-08,
-        "feasibility_b": 4.999911940636176e-10,
-        "excluded_from_reference": true,
-        "cost_ref": 18.783023008702997
+      "pot_reference": {
+        "cost": 18.78302302830317,
+        "feasibility_a": 8.239936510889834e-18,
+        "feasibility_b": 3.0357660829594124e-18,
+        "cost_ref": 18.783023028303163,
+        "rel_cost_err": 3.782898709592275e-16
       }
     },
     "1000": {
-      "lemon": {
-        "cost": 0.504145151636,
-        "feasibility_a": 4.988286259749453e-13,
-        "feasibility_b": 3.899335064908027e-12,
-        "cost_ref": 0.5035854126497887,
-        "rel_cost_err": 0.0011115075459911575
+      "bonneel_dense": {
+        "cost": 0.5035854126497877,
+        "feasibility_a": 1.3010426069826053e-18,
+        "feasibility_b": 1.441988889405721e-17,
+        "cost_ref": 0.5035854126497877,
+        "rel_cost_err": 0.0
       },
-      "ortools": {
-        "cost": 0.503588928,
-        "feasibility_a": 1.3494100894627034e-08,
-        "feasibility_b": 4.996707362106556e-10,
-        "excluded_from_reference": true,
-        "cost_ref": 0.5035854126497887
+      "bonneel_sparse": {
+        "cost": 0.5035854126497878,
+        "feasibility_a": 1.3010426069826053e-18,
+        "feasibility_b": 1.441988889405721e-17,
+        "cost_ref": 0.5035854126497877,
+        "rel_cost_err": 2.2046369825991118e-16
       },
       "pot_reference": {
-        "cost": 0.5035854126497887,
-        "feasibility_a": 0.0,
-        "feasibility_b": 0.0,
-        "cost_ref": 0.5035854126497887,
-        "rel_cost_err": 0.0
+        "cost": 0.5035854126497883,
+        "feasibility_a": 1.452830911130576e-17,
+        "feasibility_b": 1.0842021724855044e-18,
+        "cost_ref": 0.5035854126497877,
+        "rel_cost_err": 1.1023184912995559e-15
       }
     }
   }

@@ -71,10 +71,16 @@ def emd(a, b, M, numItermax=100000, log=False, center_dual=True,
         check_feasibility(a, b, row_ptr, col_idx)
 
     if selected == 'bonneel':
-        M_dense = np.asarray(M, dtype=np.float64, order='C')
-        G = _bonneel.solve_dense(a, b, M_dense, numItermax)
+        M_dense = np.ascontiguousarray(M, dtype=np.float64)
+        G, u, v = _bonneel.solve_dense(a, b, M_dense, numItermax)
+        if center_dual:
+            shift = float(u.mean())
+            u = u - shift
+            v = v + shift
         if log:
-            return G, {}
+            cost = float(np.sum(G * M_dense))
+            return G, {"cost": cost, "u": u, "v": v,
+                       "warning": None, "result_code": 1}
         return G
 
     if selected == 'lemon':

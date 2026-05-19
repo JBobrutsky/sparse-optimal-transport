@@ -75,19 +75,26 @@ def test_bench_solvers_quick_smoke(tmp_path):
     eff = json.loads((repo_root / "benchmarks/results/efficiency_quick.json").read_text())
     acc = json.loads((repo_root / "benchmarks/results/accuracy_quick.json").read_text())
 
-    # Structure: dict[n_str] -> dict[k_str] -> dict[config] -> result|None
-    assert "200" in eff and "1000" in eff
-    cell = eff["200"]["4"]   # smallest quick cell
-    assert set(cell.keys()) >= {"bonneel_dense", "bonneel_sparse", "pot_reference"}
+    # New structure: top level splits "dense" and "sparse" suites.
+    assert set(eff.keys()) == {"dense", "sparse"}
+    assert set(acc.keys()) == {"dense", "sparse"}
 
-    # At n=200 (small dense problem) all three configs should succeed.
-    bonneel = cell["bonneel_sparse"]
-    pot     = cell["pot_reference"]
-    assert isinstance(bonneel, dict) and bonneel.get("wall_time_s") is not None, bonneel
-    assert isinstance(pot, dict)     and pot.get("wall_time_s") is not None, pot
+    dense_cell = eff["dense"]["200"]
+    assert set(dense_cell.keys()) == {"bonneel_dense", "pot_reference"}
+    for cfg in ("bonneel_dense", "pot_reference"):
+        assert isinstance(dense_cell[cfg], dict)
+        assert dense_cell[cfg].get("wall_time_s") is not None
 
-    # Accuracy file should have same n/k structure.
-    assert "200" in acc and "1000" in acc
+    sparse_cell = eff["sparse"]["200"]["4"]
+    # Sparse suite cells include both Bonneel paths when n <= MAX_DENSE_N,
+    # so the dense column can be compared against the sparse column on the
+    # same input. At n=200 both run.
+    assert set(sparse_cell.keys()) >= {"bonneel_sparse", "bonneel_dense"}
+    assert sparse_cell["bonneel_sparse"].get("wall_time_s") is not None
+    assert sparse_cell["bonneel_dense"].get("wall_time_s") is not None
+
+    assert "200" in acc["dense"]
+    assert "200" in acc["sparse"] and "1000" in acc["sparse"]
 
 
 @pytest.mark.parametrize("n,k", [(50, 1), (50, 2), (200, 4), (1000, 8)])

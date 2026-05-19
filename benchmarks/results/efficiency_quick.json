@@ -1,165 +1,105 @@
 {
-  "200": {
-    "4": {
-      "bonneel_dense": {
-        "wall_time_s": 0.003808125853538513,
-        "peak_rss_mb": 0.3219413757324219,
-        "n_runs": 1,
-        "nnz": 800
-      },
-      "bonneel_sparse": {
-        "wall_time_s": 0.009116960689425468,
-        "peak_rss_mb": 0.03954315185546875,
-        "n_runs": 1,
-        "nnz": 800
-      },
-      "pot_reference": {
-        "wall_time_s": 0.004305582493543625,
-        "peak_rss_mb": 0.617523193359375,
-        "n_runs": 1,
-        "nnz": 800
-      }
-    },
-    "20": {
-      "bonneel_dense": {
-        "wall_time_s": 0.003201499581336975,
-        "peak_rss_mb": 0.314239501953125,
-        "n_runs": 1,
-        "nnz": 4000
-      },
-      "bonneel_sparse": {
-        "wall_time_s": 0.0314713753759861,
-        "peak_rss_mb": 0.08733367919921875,
-        "n_runs": 1,
-        "nnz": 4000
-      },
-      "pot_reference": {
-        "wall_time_s": 0.0038770418614149094,
-        "peak_rss_mb": 0.6170883178710938,
-        "n_runs": 1,
-        "nnz": 4000
-      }
-    },
-    "32": {
-      "bonneel_dense": {
-        "wall_time_s": 0.0032661259174346924,
-        "peak_rss_mb": 0.314239501953125,
-        "n_runs": 1,
-        "nnz": 6400
-      },
-      "bonneel_sparse": {
-        "wall_time_s": 0.04965008422732353,
-        "peak_rss_mb": 0.13532257080078125,
-        "n_runs": 1,
-        "nnz": 6400
-      },
-      "pot_reference": {
-        "wall_time_s": 0.004402458667755127,
-        "peak_rss_mb": 0.6170883178710938,
-        "n_runs": 1,
-        "nnz": 6400
-      }
-    },
+  "dense": {
     "200": {
       "bonneel_dense": {
-        "wall_time_s": 0.001484207808971405,
-        "peak_rss_mb": 0.314239501953125,
-        "n_runs": 1,
-        "nnz": 40000
-      },
-      "bonneel_sparse": {
-        "wall_time_s": 0.31642916426062584,
-        "peak_rss_mb": 0.8081588745117188,
-        "n_runs": 1,
-        "nnz": 40000
+        "wall_time_s": 0.0036261659115552902,
+        "peak_rss_mb": 0.33230113983154297,
+        "n_runs": 1
       },
       "pot_reference": {
-        "wall_time_s": 0.001514168456196785,
-        "peak_rss_mb": 0.6170883178710938,
-        "n_runs": 1,
-        "nnz": 40000
+        "wall_time_s": 0.0021190401166677475,
+        "peak_rss_mb": 0.617523193359375,
+        "n_runs": 1
       }
     }
   },
-  "1000": {
-    "4": {
-      "bonneel_dense": {
-        "wall_time_s": 0.19401720724999905,
-        "peak_rss_mb": 7.669036865234375,
-        "n_runs": 1,
-        "nnz": 4000
+  "sparse": {
+    "200": {
+      "4": {
+        "bonneel_sparse": {
+          "wall_time_s": 0.009901124984025955,
+          "peak_rss_mb": 0.049307823181152344,
+          "n_runs": 1,
+          "nnz": 800
+        },
+        "bonneel_dense": {
+          "wall_time_s": 0.003790084272623062,
+          "peak_rss_mb": 0.3192901611328125,
+          "n_runs": 1,
+          "nnz": 800
+        }
       },
-      "bonneel_sparse": {
-        "wall_time_s": 0.06031858175992966,
-        "peak_rss_mb": 0.14979171752929688,
-        "n_runs": 1,
-        "nnz": 4000
+      "20": {
+        "bonneel_sparse": {
+          "wall_time_s": 0.032799042761325836,
+          "peak_rss_mb": 0.08734130859375,
+          "n_runs": 1,
+          "nnz": 4000
+        },
+        "bonneel_dense": {
+          "wall_time_s": 0.0029694605618715286,
+          "peak_rss_mb": 0.3192901611328125,
+          "n_runs": 1,
+          "nnz": 4000
+        }
       },
-      "pot_reference": {
-        "wall_time_s": 0.30019970797002316,
-        "peak_rss_mb": 15.285362243652344,
-        "n_runs": 1,
-        "nnz": 4000
-      }
-    },
-    "32": {
-      "bonneel_dense": {
-        "wall_time_s": 0.18451787531375885,
-        "peak_rss_mb": 7.669036865234375,
-        "n_runs": 1,
-        "nnz": 32000
-      },
-      "bonneel_sparse": {
-        "wall_time_s": 0.305737791582942,
-        "peak_rss_mb": 0.6661453247070312,
-        "n_runs": 1,
-        "nnz": 32000
-      },
-      "pot_reference": {
-        "wall_time_s": 0.33032224886119366,
-        "peak_rss_mb": 15.285362243652344,
-        "n_runs": 1,
-        "nnz": 32000
-      }
-    },
-    "100": {
-      "bonneel_dense": {
-        "wall_time_s": 0.21698345802724361,
-        "peak_rss_mb": 7.669036865234375,
-        "n_runs": 1,
-        "nnz": 100000
-      },
-      "bonneel_sparse": {
-        "wall_time_s": 0.8759580831974745,
-        "peak_rss_mb": 2.0279922485351562,
-        "n_runs": 1,
-        "nnz": 100000
-      },
-      "pot_reference": {
-        "wall_time_s": 0.40344691649079323,
-        "peak_rss_mb": 15.285362243652344,
-        "n_runs": 1,
-        "nnz": 100000
+      "32": {
+        "bonneel_sparse": {
+          "wall_time_s": 0.05066387355327606,
+          "peak_rss_mb": 0.1353302001953125,
+          "n_runs": 1,
+          "nnz": 6400
+        },
+        "bonneel_dense": {
+          "wall_time_s": 0.003464043140411377,
+          "peak_rss_mb": 0.3192901611328125,
+          "n_runs": 1,
+          "nnz": 6400
+        }
       }
     },
     "1000": {
-      "bonneel_dense": {
-        "wall_time_s": 0.03934166580438614,
-        "peak_rss_mb": 7.669036865234375,
-        "n_runs": 1,
-        "nnz": 1000000
+      "4": {
+        "bonneel_sparse": {
+          "wall_time_s": 0.06260495819151402,
+          "peak_rss_mb": 0.17694473266601562,
+          "n_runs": 1,
+          "nnz": 4000
+        },
+        "bonneel_dense": {
+          "wall_time_s": 0.1978756245225668,
+          "peak_rss_mb": 7.6923675537109375,
+          "n_runs": 1,
+          "nnz": 4000
+        }
       },
-      "bonneel_sparse": {
-        "wall_time_s": 8.385138416662812,
-        "peak_rss_mb": 20.05243682861328,
-        "n_runs": 1,
-        "nnz": 1000000
+      "32": {
+        "bonneel_sparse": {
+          "wall_time_s": 0.35188387520611286,
+          "peak_rss_mb": 0.6661834716796875,
+          "n_runs": 1,
+          "nnz": 32000
+        },
+        "bonneel_dense": {
+          "wall_time_s": 0.18469108268618584,
+          "peak_rss_mb": 7.6923675537109375,
+          "n_runs": 1,
+          "nnz": 32000
+        }
       },
-      "pot_reference": {
-        "wall_time_s": 0.04087308421730995,
-        "peak_rss_mb": 15.285362243652344,
-        "n_runs": 1,
-        "nnz": 1000000
+      "100": {
+        "bonneel_sparse": {
+          "wall_time_s": 0.9037472922354937,
+          "peak_rss_mb": 2.0279922485351562,
+          "n_runs": 1,
+          "nnz": 100000
+        },
+        "bonneel_dense": {
+          "wall_time_s": 0.2186349593102932,
+          "peak_rss_mb": 7.6923675537109375,
+          "n_runs": 1,
+          "nnz": 100000
+        }
       }
     }
   }

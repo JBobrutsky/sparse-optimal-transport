@@ -91,3 +91,21 @@ def generate_knn_grid_problem(
         (w_scaled, (rows, cols)), shape=(n, n)
     )
     return a, b, M, w_plan
+
+
+def generate_dense_random_problem(
+    n: int, seed: int = 0
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return (a, b, M) — fully dense n×n OT instance with random uniform costs.
+
+    Marginals are Dirichlet-sampled and re-normalised so a.sum() == b.sum() ==
+    1 in float64. Used by the dense benchmark suite where every (i, j) is a
+    valid edge — no penalty trick, no sparsity.
+    """
+    rng = np.random.default_rng(seed)
+    a = rng.dirichlet(np.ones(n))
+    b = rng.dirichlet(np.ones(n))
+    a = a / a.sum()
+    b = b / b.sum()
+    M = rng.uniform(0.0, 1.0, size=(n, n)).astype(np.float64)
+    return a, b, M

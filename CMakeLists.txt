@@ -14,8 +14,3 @@ target_compile_options(_bonneel PRIVATE -O3)
 # emd_wrap is also built without OpenMP for the same reason.
 target_compile_definitions(_bonneel PRIVATE NOOMP)
 install(TARGETS _bonneel DESTINATION sparse_ot/_ext)
-
-pybind11_add_module(_lemon src/cpp/lemon_solver.cpp)
-target_include_directories(_lemon PRIVATE src/cpp)
-target_compile_options(_lemon PRIVATE -O3)
-install(TARGETS _lemon DESTINATION sparse_ot/_ext)

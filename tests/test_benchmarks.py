@@ -75,21 +75,26 @@ def test_bench_solvers_quick_smoke(tmp_path):
     eff = json.loads((repo_root / "benchmarks/results/efficiency_quick.json").read_text())
     acc = json.loads((repo_root / "benchmarks/results/accuracy_quick.json").read_text())
 
-    # Structure: dict[n_str] -> dict[k_str] -> dict[solver] -> result|None
-    assert "200" in eff and "1000" in eff
-    cell = eff["200"]["4"]   # smallest quick cell
-    assert set(cell.keys()) >= {"bonneel", "lemon", "ortools", "pot_reference"}
+    # New structure: top level splits "dense" and "sparse" suites.
+    assert set(eff.keys()) == {"dense", "sparse"}
+    assert set(acc.keys()) == {"dense", "sparse"}
 
-    # At least bonneel and pot_reference should succeed on n=200 (small dense problem).
-    # LEMON is allowed to be None/error (known broken). OR-Tools may or may not be
-    # infeasible on k=4. Require Bonneel and POT to produce a wall_time_s.
-    bonneel = cell["bonneel"]
-    pot     = cell["pot_reference"]
-    assert isinstance(bonneel, dict) and bonneel.get("wall_time_s") is not None, bonneel
-    assert isinstance(pot, dict)     and pot.get("wall_time_s") is not None, pot
+    dense_cell = eff["dense"]["200"]
+    assert set(dense_cell.keys()) == {"bonneel_dense", "pot_reference"}
+    for cfg in ("bonneel_dense", "pot_reference"):
+        assert isinstance(dense_cell[cfg], dict)
+        assert dense_cell[cfg].get("wall_time_s") is not None
 
-    # Accuracy file should have same n/k structure.
-    assert "200" in acc and "1000" in acc
+    sparse_cell = eff["sparse"]["200"]["4"]
+    # Sparse suite cells include both Bonneel paths when n <= MAX_DENSE_N,
+    # so the dense column can be compared against the sparse column on the
+    # same input. At n=200 both run.
+    assert set(sparse_cell.keys()) >= {"bonneel_sparse", "bonneel_dense"}
+    assert sparse_cell["bonneel_sparse"].get("wall_time_s") is not None
+    assert sparse_cell["bonneel_dense"].get("wall_time_s") is not None
+
+    assert "200" in acc["dense"]
+    assert "200" in acc["sparse"] and "1000" in acc["sparse"]
 
 
 @pytest.mark.parametrize("n,k", [(50, 1), (50, 2), (200, 4), (1000, 8)])
@@ -114,71 +119,3 @@ def test_generator_produces_feasible_instance(n, k):
     check_feasibility(a, b, row_ptr, col_idx)
 
 
-def test_compute_accuracy_cell_picks_min_cost_as_reference():
-    from benchmarks.bench_solvers import compute_accuracy_cell
-    raw = {
-        'lemon':   {'cost': 10.0, 'feasibility_a': 1e-13, 'feasibility_b': 1e-13},
-        'ortools': {'cost': 10.5, 'feasibility_a': 1e-10, 'feasibility_b': 1e-10},
-        'bonneel': {'error': 'skipped'},
-    }
-    out = compute_accuracy_cell(raw)
-    assert out['lemon']['cost_ref'] == 10.0
-    assert out['ortools']['cost_ref'] == 10.0
-    assert out['lemon']['rel_cost_err'] == 0.0
-    assert out['ortools']['rel_cost_err'] == pytest.approx(0.05, rel=1e-9)
-    assert out['bonneel'].get('error') == 'skipped'
-
-
-def test_compute_accuracy_cell_excludes_infeasible_from_reference():
-    from benchmarks.bench_solvers import compute_accuracy_cell
-    raw = {
-        'lemon':   {'cost': 10.0, 'feasibility_a': 1e-13, 'feasibility_b': 1e-13},
-        # ortools achieves a lower cost but is not primal-feasible — must be excluded.
-        'ortools': {'cost': 9.0,  'feasibility_a': 1e-3,  'feasibility_b': 1e-3},
-    }
-    out = compute_accuracy_cell(raw)
-    assert out['lemon']['cost_ref'] == 10.0
-    assert out['lemon']['rel_cost_err'] == 0.0
-    # ortools is excluded from the reference; its cost_ref should either
-    # not exist or carry the excluded marker.
-    assert out['ortools'].get('excluded_from_reference') is True
-
-
-def test_compute_accuracy_cell_no_feasible_solvers():
-    from benchmarks.bench_solvers import compute_accuracy_cell
-    raw = {
-        'lemon':   {'error': 'crashed'},
-        'ortools': {'cost': 9.0,  'feasibility_a': 1e-3,  'feasibility_b': 1e-3},
-    }
-    out = compute_accuracy_cell(raw)
-    # No reference can be derived. The function should not crash and should
-    # leave the entries as-is (or mark them as excluded).
-    assert 'cost_ref' not in out.get('lemon', {})
-    assert out['ortools'].get('cost_ref') is None or out['ortools'].get('excluded_from_reference') is True
-
-
-def test_derive_thresholds_picks_crossover():
-    from benchmarks.generate_report import derive_thresholds
-    # Synthetic efficiency data: bonneel wins at k>=64 at n=1000; lemon wins below.
-    # At n=1000000, ortools beats lemon at every k where both ran.
-    eff = {
-        '1000': {
-            '4':  {'bonneel': {'wall_time_s': 2.0},
-                   'lemon':   {'wall_time_s': 0.5},
-                   'ortools': {'wall_time_s': 1.0}},
-            '64': {'bonneel': {'wall_time_s': 0.4},
-                   'lemon':   {'wall_time_s': 0.5},
-                   'ortools': {'wall_time_s': 0.7}},
-        },
-        '1000000': {
-            '4':  {'bonneel': {'wall_time_s': None},
-                   'lemon':   {'wall_time_s': 60.0},
-                   'ortools': {'wall_time_s': 30.0}},
-            '64': {'bonneel': {'wall_time_s': None},
-                   'lemon':   {'wall_time_s': 40.0},
-                   'ortools': {'wall_time_s': 50.0}},
-        },
-    }
-    out = derive_thresholds(eff)
-    assert 4 <= out['bonneel_lemon'] <= 64
-    assert 1000 <= out['lemon_ortools'] <= 1000000

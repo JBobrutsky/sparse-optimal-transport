@@ -63,22 +63,23 @@ def _restrict_to_k(M_full_csr, k_warm):
     edges.
     """
     n, m = M_full_csr.shape
-    rows, cols, costs = [], [], []
+    indptr = M_full_csr.indptr
+    indices = M_full_csr.indices
+    data = M_full_csr.data
+
+    keep_mask = np.zeros(len(data), dtype=bool)
     for i in range(n):
-        s = M_full_csr.indptr[i]
-        e = M_full_csr.indptr[i + 1]
-        idx = M_full_csr.indices[s:e]
-        d = M_full_csr.data[s:e]
-        if len(d) <= k_warm:
-            keep = np.arange(len(d))
+        s, e = int(indptr[i]), int(indptr[i + 1])
+        row_len = e - s
+        if row_len <= k_warm:
+            keep_mask[s:e] = True
         else:
-            keep = np.argpartition(d, k_warm)[:k_warm]
-        for kk in keep:
-            rows.append(i)
-            cols.append(int(idx[kk]))
-            costs.append(float(d[kk]))
+            local_keep = np.argpartition(data[s:e], k_warm)[:k_warm]
+            keep_mask[s + local_keep] = True
+
+    row_idx = np.repeat(np.arange(n, dtype=np.int32), np.diff(indptr))
     return scipy.sparse.csr_matrix(
-        (np.array(costs), (np.array(rows), np.array(cols))),
+        (data[keep_mask], (row_idx[keep_mask], indices[keep_mask])),
         shape=(n, m),
     )
 

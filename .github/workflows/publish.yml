@@ -39,9 +39,22 @@ jobs:
           # macOS targets: arm64 on macos-14, x86_64 on macos-13.
           CIBW_ARCHS_MACOS: "auto64"
           CIBW_ARCHS_LINUX: "auto64"
-          # Smoke-test the built wheel by importing the extension.
-          CIBW_TEST_REQUIRES: "pytest scipy numpy pot"
-          CIBW_TEST_COMMAND: 'pytest -q -m "not slow" {project}/tests'
+          # Recent scipy releases publish only manylinux_2_28 wheels for x86_64
+          # and aarch64; the default manylinux2014 (glibc 2.17) container falls
+          # back to source-building scipy, which needs OpenBLAS and fails.
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
+          # Minimal smoke test: import the package and run one tiny emd() call.
+          # The full pytest suite already runs on every supported (os, py) pair
+          # in ci.yml — re-running it inside each wheel container would force
+          # scipy + pot + matplotlib installs we don't need just to verify the
+          # binary loads.
+          CIBW_TEST_REQUIRES: "numpy scipy"
+          CIBW_TEST_COMMAND: >-
+            python -c "import numpy as np, sparse_ot;
+            G = sparse_ot.emd(np.array([0.4, 0.6]), np.array([0.5, 0.5]), np.array([[0.0, 1.0], [1.0, 0.0]]));
+            assert G.shape == (2, 2);
+            print('sparse_ot wheel smoke test ok')"
 
       - uses: actions/upload-artifact@v4
         with:

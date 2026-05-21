@@ -1,5 +1,7 @@
 # sparse-ot
 
+[![CI](https://github.com/JBobrutsky/sparse-optimal-transport/actions/workflows/ci.yml/badge.svg)](https://github.com/JBobrutsky/sparse-optimal-transport/actions/workflows/ci.yml)
+
 Drop-in replacement for [POT](https://github.com/PythonOT/POT)'s `emd` /
 `emd2`, with native support for **sparse cost matrices**. One solver
 (Bonneel's network simplex) covers both regimes:
@@ -198,6 +200,29 @@ the more accurate of the two when both can run.
 | `MAX_SPARSE_NNZ` | 200 000 000   | Sparse cell skipped above this nnz         |
 
 Raise the constants for larger hardware.
+
+## Releasing
+
+PyPI uploads are automated via GitHub Actions and PyPI's
+[trusted-publishing OIDC](https://docs.pypi.org/trusted-publishers/). To
+cut a release:
+
+1. Bump `project.version` in `pyproject.toml`, commit, tag (`git tag vX.Y.Z`),
+   push (`git push --tags`).
+2. Create a GitHub Release pointing at the tag.
+
+The `.github/workflows/publish.yml` workflow then builds wheels via
+`cibuildwheel` for Linux (x86_64, arm64) and macOS (x86_64, arm64) across
+Python 3.10–3.13, builds an sdist, and uploads everything to PyPI.
+
+First-time setup (one-time, requires owner action on pypi.org):
+
+- Add a trusted publisher for **sparse-ot** with owner = `JBobrutsky`,
+  repository = `sparse-optimal-transport`, workflow = `publish.yml`,
+  environment = `pypi`.
+- For TestPyPI dry runs, register the same on test.pypi.org with
+  environment = `testpypi`. Then trigger `Publish to PyPI` via the
+  Actions UI (workflow_dispatch) with target = `testpypi`.
 
 ## License
 

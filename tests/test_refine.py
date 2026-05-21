@@ -52,18 +52,22 @@ def test_warm_start_with_dense_M_raises():
         sparse_ot.emd(a, b, M_dense, warm_start=fake_warm)
 
 
-def test_warm_start_with_sparse_M_reaches_refine_stub():
-    """Sparse M + non-None warm_start dispatches into refine.py's stub,
-    which raises NotImplementedError until later tasks fill it in.
+def test_warm_start_with_sparse_M_non_optimal_raises():
+    """Sparse M + non-optimal warm_start dispatches to non-optimal branch,
+    which raises NotImplementedError until Task 5 fills it in.
+
+    We force non-optimality by setting v large enough to make all reduced
+    costs negative.
     """
     a, b, M = _band_problem(10, 3)
-    fake_warm = (
+    n = 10
+    bad_warm = (
         scipy.sparse.csr_matrix(M.shape),
-        np.zeros(10),
-        np.zeros(10),
+        np.zeros(n),
+        np.full(n, M.data.max() + 1.0),
     )
-    with pytest.raises(NotImplementedError, match="later tasks"):
-        sparse_ot.emd(a, b, M, warm_start=fake_warm)
+    with pytest.raises(NotImplementedError, match="Task 5"):
+        sparse_ot.emd(a, b, M, warm_start=bad_warm)
 
 
 from sparse_ot.refine import _parse_warm_start
@@ -206,3 +210,25 @@ def test_reduced_costs_matches_dense_formula():
             j = M.indices[ptr]
             rc_naive[ptr] = M.data[ptr] - u[i] - v[j]
     np.testing.assert_allclose(rc_fast, rc_naive, atol=1e-12)
+
+
+def test_warm_start_already_optimal_roundtrip():
+    """Solve cold, feed (G, info) back as warm_start on the same problem.
+
+    Expected: warm_start_optimal=True, num_passes=0, identical costs and
+    plans within 1e-12.
+    """
+    a, b, M = _band_problem(30, 7, seed=4)
+    G_cold, info_cold = sparse_ot.emd(a, b, M, log=True)
+
+    G_refined, info_refined = sparse_ot.emd(
+        a, b, M, warm_start=(G_cold, info_cold), log=True
+    )
+
+    assert info_refined["refine"]["warm_start_optimal"] is True
+    assert info_refined["refine"]["num_passes"] == 0
+    assert info_refined["refine"]["edges_added"] == 0
+    assert abs(info_refined["cost"] - info_cold["cost"]) < 1e-12
+    np.testing.assert_allclose(
+        G_refined.toarray(), G_cold.toarray(), atol=1e-12
+    )

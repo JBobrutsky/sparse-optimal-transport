@@ -4,6 +4,13 @@ from __future__ import annotations
 import numpy as np
 import scipy.sparse
 
+import warnings
+
+from sparse_ot.feasibility import check_feasibility
+from sparse_ot.sparse_utils import to_csr
+
+_MARGINAL_TOL = 1e-6
+
 
 def _parse_warm_start(warm_start, n, m):
     """Normalize ``warm_start`` to ``(G_csr, u, v)``.
@@ -98,6 +105,104 @@ def _compute_reduced_costs(M_csr, u, v, tol=0.0):
     return rc, min_rc, n_viol
 
 
+def _default_tol(M_csr):
+    """Scale-relative tolerance for the dual-feasibility check."""
+    if M_csr.nnz == 0:
+        return 1e-9
+    return 1e-9 * max(1.0, float(np.abs(M_csr.data).max()))
+
+
+def _reshape_onto_support(G_warm_csr, M_csr):
+    """Return G with the same values as G_warm, on M_csr's index layout.
+
+    Precondition: nonzero support of G_warm is a subset of M_csr's support.
+    Output shares M_csr's shape; nnz equals G_warm.nnz (zeros are dropped).
+    """
+    # Eliminate explicit zeros for a clean output.
+    G = G_warm_csr.copy()
+    G.eliminate_zeros()
+    return G
+
+
+def _check_marginals_csr(G, a, b):
+    row_sum = np.asarray(G.sum(axis=1)).ravel()
+    col_sum = np.asarray(G.sum(axis=0)).ravel()
+    err_a = float(np.max(np.abs(row_sum - a)))
+    err_b = float(np.max(np.abs(col_sum - b)))
+    return err_a, err_b
+
+
+def _verify_support_subset(G_warm_csr, M_csr):
+    """Raise if G_warm has a nonzero outside M_csr's stored support."""
+    G_coo = G_warm_csr.tocoo()
+    nz = G_coo.data != 0.0
+    g_rows = G_coo.row[nz]
+    g_cols = G_coo.col[nz]
+    if g_rows.size == 0:
+        return
+    M_coo = M_csr.tocoo()
+    m_keys = set(zip(M_coo.row.tolist(), M_coo.col.tolist()))
+    for r, c in zip(g_rows.tolist(), g_cols.tolist()):
+        if (r, c) not in m_keys:
+            raise ValueError(
+                f"warm_start G has a nonzero at ({r}, {c}) which is not in "
+                f"M_full's support; warm_start is incompatible with M_full"
+            )
+
+
 def refine_from_warm_start(a, b, M_csr, warm_start, *,
                            numItermax, log, center_dual, reduced_cost_tol):
-    raise NotImplementedError("filled in by later tasks")
+    n, m = M_csr.shape
+
+    G_warm, u, v = _parse_warm_start(warm_start, n, m)
+    _verify_support_subset(G_warm, M_csr)
+
+    # Feasibility precondition on M_full (same as cold path).
+    row_ptr, col_idx, _costs, _n, _m, _k = to_csr(M_csr, 0.0)
+    check_feasibility(a, b, row_ptr, col_idx)
+
+    tol = _default_tol(M_csr) if reduced_cost_tol is None else float(reduced_cost_tol)
+
+    rc, min_rc, n_viol = _compute_reduced_costs(M_csr, u, v, tol=tol)
+
+    if min_rc >= -tol:
+        G = _reshape_onto_support(G_warm, M_csr)
+        refine_info = {
+            "warm_start_optimal": True,
+            "num_passes": 0,
+            "initial_min_reduced_cost": min_rc,
+            "edges_added": 0,
+        }
+    else:
+        # Filled in by Task 5.
+        raise NotImplementedError(
+            "non-optimal warm_start branch -- implemented in Task 5"
+        )
+
+    if center_dual:
+        shift = float(u.mean())
+        u = u - shift
+        v = v + shift
+
+    err_a, err_b = _check_marginals_csr(G, a, b)
+    converged = max(err_a, err_b) <= _MARGINAL_TOL
+    warn_msg = None
+    if not converged:
+        warn_msg = (
+            f"marginals not satisfied after warm-start refinement: "
+            f"|G.sum(1)-a|={err_a:.2e}, |G.sum(0)-b|={err_b:.2e} "
+            f"(tol={_MARGINAL_TOL:.0e})."
+        )
+        warnings.warn(warn_msg, RuntimeWarning, stacklevel=3)
+
+    if log:
+        cost = float(G.multiply(M_csr).sum())
+        return G, {
+            "cost": cost,
+            "u": u,
+            "v": v,
+            "warning": warn_msg,
+            "result_code": 1 if converged else 0,
+            "refine": refine_info,
+        }
+    return G

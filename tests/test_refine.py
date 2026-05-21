@@ -64,3 +64,76 @@ def test_warm_start_with_sparse_M_reaches_refine_stub():
     )
     with pytest.raises(NotImplementedError, match="later tasks"):
         sparse_ot.emd(a, b, M, warm_start=fake_warm)
+
+
+from sparse_ot.refine import _parse_warm_start
+
+
+def _trivial_warm(n, m):
+    G = scipy.sparse.csr_matrix(np.eye(n, m) / min(n, m))
+    u = np.zeros(n)
+    v = np.zeros(m)
+    return G, u, v
+
+
+def test_parse_warm_start_tuple_form():
+    G, u, v = _trivial_warm(4, 4)
+    G_out, u_out, v_out = _parse_warm_start((G, u, v), n=4, m=4)
+    assert scipy.sparse.issparse(G_out)
+    np.testing.assert_array_equal(u_out, u)
+    np.testing.assert_array_equal(v_out, v)
+
+
+def test_parse_warm_start_info_dict_form():
+    G, u, v = _trivial_warm(4, 4)
+    info = {"u": u, "v": v, "cost": 0.0,
+            "warning": None, "result_code": 1}
+    G_out, u_out, v_out = _parse_warm_start((G, info), n=4, m=4)
+    np.testing.assert_array_equal(u_out, u)
+    np.testing.assert_array_equal(v_out, v)
+
+
+def test_parse_warm_start_dense_G_normalized_to_csr():
+    G_dense = np.eye(4) * 0.25
+    u = np.zeros(4)
+    v = np.zeros(4)
+    G_out, _, _ = _parse_warm_start((G_dense, u, v), n=4, m=4)
+    assert scipy.sparse.issparse(G_out)
+    assert G_out.shape == (4, 4)
+    np.testing.assert_allclose(G_out.toarray(), G_dense)
+
+
+def test_parse_warm_start_rejects_mismatched_u_length():
+    G, u, v = _trivial_warm(4, 4)
+    with pytest.raises(ValueError, match="len.u."):
+        _parse_warm_start((G, np.zeros(3), v), n=4, m=4)
+
+
+def test_parse_warm_start_rejects_nan_v():
+    G, u, v = _trivial_warm(4, 4)
+    v_bad = v.copy()
+    v_bad[0] = np.nan
+    with pytest.raises(ValueError, match="finite"):
+        _parse_warm_start((G, u, v_bad), n=4, m=4)
+
+
+def test_parse_warm_start_rejects_missing_keys():
+    G, u, v = _trivial_warm(4, 4)
+    bad_info = {"cost": 0.0}  # no u, no v
+    with pytest.raises(TypeError, match="u"):
+        _parse_warm_start((G, bad_info), n=4, m=4)
+
+
+def test_parse_warm_start_rejects_wrong_G_type():
+    u = np.zeros(4)
+    v = np.zeros(4)
+    with pytest.raises(TypeError, match="CSR.*ndarray|G"):
+        _parse_warm_start(("not a matrix", u, v), n=4, m=4)
+
+
+def test_parse_warm_start_rejects_bad_shape():
+    G_dense = np.eye(3)
+    u = np.zeros(4)
+    v = np.zeros(4)
+    with pytest.raises(ValueError, match="shape"):
+        _parse_warm_start((G_dense, u, v), n=4, m=4)

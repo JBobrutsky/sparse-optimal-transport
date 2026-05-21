@@ -40,11 +40,14 @@ def emd(a, b, M, numItermax=None, log=False, center_dual=True,
 ```
 
 - `warm_start`: `None` (default, cold path), or the 2-tuple `(G, info)`
-  returned by a prior `emd(..., log=True)` call. The flow `G` (CSR) is needed
-  so we can return immediately when `(u, v)` is already dual-feasible on
-  `E_full` — without it, we'd have to re-solve `M_full` from scratch just to
-  produce a flow. `info` supplies the dual potentials `u`, `v`. A bare tuple
-  `(G, u, v)` is also accepted for callers who didn't request `log=True`.
+  returned by a prior `emd(..., log=True)` call. The flow `G` may be **either
+  a `scipy.sparse` CSR matrix or a dense `numpy.ndarray`** — both shapes that
+  the existing `emd` returns are accepted, with no preprocessing required on
+  the caller's side. `G` is needed so we can return immediately when `(u, v)`
+  is already dual-feasible on `E_full` — without it, we'd have to re-solve
+  `M_full` from scratch just to produce a flow. `info` supplies the dual
+  potentials `u`, `v`. A bare tuple `(G, u, v)` is also accepted for callers
+  who didn't request `log=True`.
 - `reduced_cost_tol`: `None` (default) picks `1e-9 * max(1, |M|_∞)`. Override
   in the rare case the cost scale is unusual.
 
@@ -156,9 +159,14 @@ def refine_from_warm_start(a, b, M_csr, warm_start, *,
 ```
 
 Helpers (private):
-- `_parse_warm_start(warm_start, n, m) -> (G, u, v)`: accepts the `(G, info)`
-  tuple, the bare `(G, u, v)` tuple, validates shapes/finiteness/CSR-ness of
-  `G`, raises with field-level messages.
+- `_parse_warm_start(warm_start, n, m) -> (G_csr, u, v)`: accepts the
+  `(G, info)` tuple or the bare `(G, u, v)` tuple. `G` may be CSR or a dense
+  ndarray of shape `(n, m)`; dense inputs are converted to CSR internally via
+  `scipy.sparse.csr_matrix(G)` (only the nonzero entries are kept — any
+  exactly-zero flow values are dropped, which is correct: a zero flow on an
+  unused edge has no effect on the active support). Validates
+  shapes/finiteness of `u`, `v`, and the converted `G_csr`. Raises with
+  field-level messages.
 - `_compute_reduced_costs(M_csr, u, v) -> (rc, min_rc, n_violating)`.
 - `_resolve_with_warm_start(a, b, M_csr, u, v, numItermax) -> (G, u', v')`:
   thin wrapper over `_bonneel.solve_sparse` that passes the warm-start duals
@@ -201,7 +209,7 @@ free *because* we receive `G_warm`, not because of any C++ change.
 ```
 Inputs: a, b (marginals), M_csr (full CSR), warm_start (dict or tuple)
 
-  ├─ _parse_warm_start ── (G_warm, u, v)
+  ├─ _parse_warm_start ── (G_warm_csr, u, v)   # G_warm normalized to CSR
   ├─ check_feasibility(a, b, M_csr)  ── existing check on full support
   ├─ _compute_reduced_costs(M_csr, u, v) ── (rc, min_rc, n_violating)
   │
@@ -241,8 +249,9 @@ distinguishes refinement output from cold output.
 |---|---|
 | `warm_start` missing `G`, `u`, or `v` | `TypeError` with field-level message |
 | `len(u) != n` or `len(v) != m` or `G.shape != (n,m)` | `ValueError` |
+| `G` is neither a CSR matrix nor a 2-D ndarray | `TypeError` |
 | `u`/`v` contains non-finite values | `ValueError` (warm-start corrupted) |
-| `G_warm` support not a subset of `M_full` support | `ValueError` (warm-start incompatible with `M_full`) |
+| `G_warm` nonzero support not a subset of `M_full` support | `ValueError` (warm-start incompatible with `M_full`) |
 | `warm_start` provided with dense `M_full` | `NotImplementedError` |
 | `M_full` empty (nnz == 0) | `InfeasibleProblemError` via existing check |
 | `a`/`b` shape mismatch with `M_full` | existing `ValueError` (unchanged) |
@@ -294,6 +303,9 @@ Test file: `tests/test_refine.py` (new). Existing tests untouched.
 10. Bare tuple form `warm_start=(G, u, v)` produces the same result as the
     `(G, info)` form.
 11. `G_warm` with an edge outside `M_full`'s support → `ValueError`.
+12. **Dense `G_warm` round-trip.** `G_warm` passed as `np.ndarray` produces
+    the same result as the equivalent CSR. (Covers callers whose Phase-1
+    `emd` was on a dense `M_coarse`.)
 
 ### Benchmark (separate file)
 

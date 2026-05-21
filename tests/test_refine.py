@@ -299,3 +299,85 @@ def test_warm_start_subsupport_converges_to_cold_optimum():
     # The refinement either found the warm-start already optimal (0 passes)
     # or needed exactly one re-solve.
     assert info_refined["refine"]["num_passes"] in (0, 1)
+
+
+def test_warm_start_suboptimal_duals_triggers_fallback():
+    """When warm-start duals are suboptimal on M_full, fallback to cold-solve.
+
+    A warm-start with duals that violate dual-feasibility on M_full should
+    trigger the fallback branch and still converge.
+    """
+    a, b, M = _band_problem(20, 5, seed=10)
+    # Create a deliberately bad warm-start: empty flow with hand-made duals.
+    G_bad = scipy.sparse.csr_matrix(M.shape, dtype=np.float64)
+    u_bad = np.zeros(20)
+    # Make v violate dual-feasibility (very large values, causing rc < 0).
+    v_bad = np.full(20, M.data.max() + 10.0)
+    # Solve with the bad warm-start.
+    G, info = sparse_ot.emd(
+        a, b, M,
+        warm_start=(G_bad, u_bad, v_bad),
+        log=True,
+    )
+    # Should have triggered the fallback (non-optimal branch).
+    assert info["refine"]["warm_start_optimal"] is False
+    # And it should still converge to the right answer.
+    np.testing.assert_allclose(np.asarray(G.sum(axis=1)).ravel(), a, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(G.sum(axis=0)).ravel(), b, atol=1e-6)
+
+
+def test_warm_start_centered_vs_uncentered_duals_match():
+    a, b, M = _band_problem(20, 7, seed=12)
+    G_c, info_c = sparse_ot.emd(a, b, M, log=True, center_dual=True)
+    G_u, info_u = sparse_ot.emd(a, b, M, log=True, center_dual=False)
+    # Both are valid warm-starts; both must yield the same refined cost.
+    _, info_ref_c = sparse_ot.emd(a, b, M, warm_start=(G_c, info_c), log=True)
+    _, info_ref_u = sparse_ot.emd(a, b, M, warm_start=(G_u, info_u), log=True)
+    assert abs(info_ref_c["cost"] - info_ref_u["cost"]) < 1e-12
+
+
+def test_warm_start_G_outside_M_support_raises():
+    a, b, M = _band_problem(10, 3, seed=13)
+    # Build G with a nonzero at (0, n-1), which is far outside the band.
+    G_bad = scipy.sparse.csr_matrix(
+        (np.array([0.5]), (np.array([0]), np.array([9]))),
+        shape=(10, 10),
+    )
+    u = np.zeros(10)
+    v = np.zeros(10)
+    with pytest.raises(ValueError, match="not in M_full"):
+        sparse_ot.emd(a, b, M, warm_start=(G_bad, u, v))
+
+
+def test_warm_start_bare_tuple_matches_dict_form():
+    a, b, M = _band_problem(20, 7, seed=14)
+    G_cold, info_cold = sparse_ot.emd(a, b, M, log=True)
+    _, info_dict = sparse_ot.emd(
+        a, b, M, warm_start=(G_cold, info_cold), log=True
+    )
+    _, info_tuple = sparse_ot.emd(
+        a, b, M,
+        warm_start=(G_cold, info_cold["u"], info_cold["v"]),
+        log=True,
+    )
+    assert info_dict["cost"] == info_tuple["cost"]
+    assert info_dict["refine"]["warm_start_optimal"] == \
+        info_tuple["refine"]["warm_start_optimal"]
+
+
+def test_warm_start_dense_G_matches_csr_G():
+    """Dense G_warm produces identical refined output to CSR G_warm."""
+    a, b, M = _band_problem(20, 7, seed=15)
+    G_cold, info_cold = sparse_ot.emd(a, b, M, log=True)
+    G_dense = G_cold.toarray()
+    _, info_csr = sparse_ot.emd(
+        a, b, M, warm_start=(G_cold, info_cold), log=True
+    )
+    _, info_dense = sparse_ot.emd(
+        a, b, M,
+        warm_start=(G_dense, info_cold["u"], info_cold["v"]),
+        log=True,
+    )
+    assert info_csr["cost"] == info_dense["cost"]
+    assert info_csr["refine"]["warm_start_optimal"] == \
+        info_dense["refine"]["warm_start_optimal"]

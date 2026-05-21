@@ -127,7 +127,7 @@ def test_parse_warm_start_rejects_missing_keys():
 def test_parse_warm_start_rejects_wrong_G_type():
     u = np.zeros(4)
     v = np.zeros(4)
-    with pytest.raises(TypeError, match="CSR.*ndarray|G"):
+    with pytest.raises(TypeError, match="CSR matrix or a 2-D ndarray"):
         _parse_warm_start(("not a matrix", u, v), n=4, m=4)
 
 
@@ -137,3 +137,32 @@ def test_parse_warm_start_rejects_bad_shape():
     v = np.zeros(4)
     with pytest.raises(ValueError, match="shape"):
         _parse_warm_start((G_dense, u, v), n=4, m=4)
+
+
+def test_parse_warm_start_accepts_coo_input():
+    """Non-CSR sparse input is normalized to CSR."""
+    G_coo = scipy.sparse.coo_matrix(np.eye(4) * 0.25)
+    u = np.zeros(4)
+    v = np.zeros(4)
+    G_out, _, _ = _parse_warm_start((G_coo, u, v), n=4, m=4)
+    assert scipy.sparse.isspmatrix_csr(G_out)
+    np.testing.assert_allclose(G_out.toarray(), G_coo.toarray())
+
+
+def test_parse_warm_start_accepts_int_dtype_G():
+    """Integer-dtype G is normalized to float64 CSR."""
+    G_int = np.eye(4, dtype=np.int64)
+    u = np.zeros(4)
+    v = np.zeros(4)
+    G_out, _, _ = _parse_warm_start((G_int, u, v), n=4, m=4)
+    assert G_out.dtype == np.float64
+    np.testing.assert_allclose(G_out.toarray(), G_int.astype(np.float64))
+
+
+def test_parse_warm_start_rejects_2d_u():
+    """A 2-D u (e.g., column vector) is rejected, not silently flattened."""
+    G, _, _ = _trivial_warm(4, 4)
+    u_bad = np.zeros((4, 1))
+    v = np.zeros(4)
+    with pytest.raises(ValueError, match="1-D"):
+        _parse_warm_start((G, u_bad, v), n=4, m=4)

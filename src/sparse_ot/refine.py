@@ -55,8 +55,16 @@ def _parse_warm_start(warm_start, n, m):
             f"expected ({n}, {m}) to match M_full"
         )
 
-    u = np.asarray(u, dtype=np.float64).ravel()
-    v = np.asarray(v, dtype=np.float64).ravel()
+    u = np.asarray(u, dtype=np.float64)
+    v = np.asarray(v, dtype=np.float64)
+    if u.ndim != 1:
+        raise ValueError(
+            f"warm_start u must be 1-D; got shape {u.shape}"
+        )
+    if v.ndim != 1:
+        raise ValueError(
+            f"warm_start v must be 1-D; got shape {v.shape}"
+        )
     if len(u) != n:
         raise ValueError(
             f"warm_start len(u)={len(u)}; expected {n} to match M_full"

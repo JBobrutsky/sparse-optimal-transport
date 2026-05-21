@@ -813,6 +813,27 @@ namespace lemon {
 			return start();
 		}
 
+		/// \brief Run with warm dual potentials (Mode C warm start).
+		///
+		/// Identical to run() but overrides the node potentials with the
+		/// provided warm values after init() builds the artificial spanning tree.
+		/// The pivot loop then starts from a better dual position.
+		///
+		/// \param u0  Source potentials, length n (0-indexed source nodes).
+		/// \param v0  Target potentials, length m (0-indexed target columns).
+		/// \param n   Number of source nodes.
+		/// \param m   Number of target nodes.
+		ProblemType runWarmPotentials(const double* u0, const double* v0, int n, int m) {
+			if (!init()) return INFEASIBLE;
+			// Override _pi with warm values. Root stays at 0.
+			// _pi is indexed via _node_id (reversed mapping). Sign convention:
+			//   potential(di(i))   = _pi[_node_id(i)]   => inject -u0[i]
+			//   potential(di(n+j)) = _pi[_node_id(n+j)] => inject  v0[j]
+			for (int i = 0; i < n; i++) _pi[_node_id(i)]     = -u0[i];
+			for (int j = 0; j < m; j++) _pi[_node_id(n + j)] =  v0[j];
+			return start();
+		}
+
 		/// \brief Reset all the parameters that have been given before.
 		///
 		/// This function resets all the paramaters that have been given

@@ -302,16 +302,18 @@ def test_warm_start_subsupport_converges_to_cold_optimum():
 
 
 def test_warm_start_suboptimal_duals_triggers_fallback():
-    """When warm-start duals are suboptimal on M_full, fallback to cold-solve.
+    """Warm-start with infeasible duals triggers exactly one cold re-solve.
 
-    A warm-start with duals that violate dual-feasibility on M_full should
-    trigger the fallback branch and still converge.
+    Checks: warm_start_optimal=False, num_passes=1, initial_min_reduced_cost<0,
+    and the resulting plan satisfies marginals.  This is distinct from
+    test_warm_start_with_sparse_M_non_optimal_uses_cold_resolve in that it also
+    validates the reported initial_min_reduced_cost is genuinely negative.
     """
     a, b, M = _band_problem(20, 5, seed=10)
     # Create a deliberately bad warm-start: empty flow with hand-made duals.
     G_bad = scipy.sparse.csr_matrix(M.shape, dtype=np.float64)
     u_bad = np.zeros(20)
-    # Make v violate dual-feasibility (very large values, causing rc < 0).
+    # large offset guarantees rc = M - u - v < 0 on every stored edge
     v_bad = np.full(20, M.data.max() + 10.0)
     # Solve with the bad warm-start.
     G, info = sparse_ot.emd(
@@ -319,20 +321,33 @@ def test_warm_start_suboptimal_duals_triggers_fallback():
         warm_start=(G_bad, u_bad, v_bad),
         log=True,
     )
-    # Should have triggered the fallback (non-optimal branch).
     assert info["refine"]["warm_start_optimal"] is False
+    assert info["refine"]["num_passes"] == 1
+    # The initial reduced costs must have been negative (that is what forced the re-solve).
+    assert info["refine"]["initial_min_reduced_cost"] < 0
     # And it should still converge to the right answer.
     np.testing.assert_allclose(np.asarray(G.sum(axis=1)).ravel(), a, atol=1e-6)
     np.testing.assert_allclose(np.asarray(G.sum(axis=0)).ravel(), b, atol=1e-6)
 
 
 def test_warm_start_centered_vs_uncentered_duals_match():
+    """Centered and uncentered duals both pass the reduced-cost check.
+
+    A cold solve with center_dual=True shifts (u, v) by a constant; that
+    shift must not cause the warm-start to be falsely classified as
+    suboptimal.  Both variants should be detected as already-optimal
+    (warm_start_optimal=True, num_passes=0) and produce the same cost.
+    """
     a, b, M = _band_problem(20, 7, seed=12)
     G_c, info_c = sparse_ot.emd(a, b, M, log=True, center_dual=True)
     G_u, info_u = sparse_ot.emd(a, b, M, log=True, center_dual=False)
-    # Both are valid warm-starts; both must yield the same refined cost.
+    # Both are valid warm-starts; both must be detected as already-optimal.
     _, info_ref_c = sparse_ot.emd(a, b, M, warm_start=(G_c, info_c), log=True)
     _, info_ref_u = sparse_ot.emd(a, b, M, warm_start=(G_u, info_u), log=True)
+    assert info_ref_c["refine"]["warm_start_optimal"] is True
+    assert info_ref_u["refine"]["warm_start_optimal"] is True
+    assert info_ref_c["refine"]["num_passes"] == 0
+    assert info_ref_u["refine"]["num_passes"] == 0
     assert abs(info_ref_c["cost"] - info_ref_u["cost"]) < 1e-12
 
 
@@ -350,6 +365,11 @@ def test_warm_start_G_outside_M_support_raises():
 
 
 def test_warm_start_bare_tuple_matches_dict_form():
+    """(G, u, v) 3-tuple and (G, info_dict) 2-tuple warm-starts are equivalent.
+
+    Both normalization paths in _parse_warm_start must produce the same result
+    when G and the dual potentials are identical.
+    """
     a, b, M = _band_problem(20, 7, seed=14)
     G_cold, info_cold = sparse_ot.emd(a, b, M, log=True)
     _, info_dict = sparse_ot.emd(

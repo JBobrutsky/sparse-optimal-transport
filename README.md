@@ -4,7 +4,8 @@
 
 Drop-in replacement for [POT](https://github.com/PythonOT/POT)'s `emd` /
 `emd2`, with native support for **sparse cost matrices**. One solver
-(Bonneel's network simplex) covers both regimes:
+([Bonneel's network simplex](https://github.com/nbonneel/network_simplex))
+covers both regimes:
 
 - **Dense** `numpy.ndarray` cost matrix → dense plan.
 - **`scipy.sparse` CSR** cost matrix → sparse plan, with memory and per-pivot
@@ -226,4 +227,4 @@ First-time setup (one-time, requires owner action on pypi.org):
 
 ## License
 
-MIT.
+[MIT](LICENSE).

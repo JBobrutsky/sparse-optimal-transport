@@ -3,6 +3,9 @@ import numpy as np
 import scipy.sparse
 
 
+_MARGINAL_TOL = 1e-6
+
+
 def _default_num_iter(n, m, k):
     # Network simplex empirically converges in O((n+m) * sqrt(k)) pivots on
     # well-behaved OT problems. Pick a generous linear multiple of the problem

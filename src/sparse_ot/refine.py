@@ -68,9 +68,7 @@ import scipy.sparse
 import warnings
 
 from sparse_ot.feasibility import check_feasibility
-from sparse_ot.sparse_utils import to_csr, bonneel_sparse_solve
-
-_MARGINAL_TOL = 1e-6
+from sparse_ot.sparse_utils import to_csr, bonneel_sparse_solve, _MARGINAL_TOL
 
 
 def _parse_warm_start(warm_start, n, m):
@@ -234,6 +232,10 @@ def _verify_support_subset(G_warm_csr, M_csr):
 def refine_from_warm_start(a, b, M_csr, warm_start, *,
                            numItermax, log, center_dual, reduced_cost_tol):
     n, m = M_csr.shape
+    if (len(a), len(b)) != (n, m):
+        raise ValueError(
+            f"M must have shape ({len(a)}, {len(b)}), got ({n}, {m})"
+        )
 
     G_warm, u, v = _parse_warm_start(warm_start, n, m)
     _verify_support_subset(G_warm, M_csr)

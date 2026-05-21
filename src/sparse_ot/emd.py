@@ -4,14 +4,8 @@ import numpy as np
 import scipy.sparse
 
 from sparse_ot._ext import _bonneel
-from sparse_ot.sparse_utils import to_csr, _default_num_iter, bonneel_sparse_solve
+from sparse_ot.sparse_utils import to_csr, _default_num_iter, bonneel_sparse_solve, _MARGINAL_TOL
 from sparse_ot.feasibility import check_feasibility
-
-# Convergence tolerance for the post-solve marginal check. Bonneel's network
-# simplex terminates at numItermax without raising; if it stops early the
-# returned flows can violate row/col marginals by orders of magnitude more
-# than machine epsilon. Anything above this is treated as non-convergence.
-_MARGINAL_TOL = 1e-6
 
 
 

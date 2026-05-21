@@ -166,3 +166,43 @@ def test_parse_warm_start_rejects_2d_u():
     v = np.zeros(4)
     with pytest.raises(ValueError, match="1-D"):
         _parse_warm_start((G, u_bad, v), n=4, m=4)
+
+
+from sparse_ot.refine import _compute_reduced_costs
+
+
+def test_reduced_costs_all_nonneg_for_optimal_duals():
+    """rc = M - u[i] - v[j] >= 0 for the optimum's dual potentials."""
+    a, b, M = _band_problem(20, 9, seed=1)
+    G, info = sparse_ot.emd(a, b, M, log=True)
+    rc, min_rc, n_viol = _compute_reduced_costs(M, info["u"], info["v"])
+    assert rc.shape == (M.nnz,)
+    assert min_rc >= -1e-9
+    assert n_viol == 0
+
+
+def test_reduced_costs_negative_when_duals_are_wrong():
+    """Zero duals make rc = M, but a hand-tweaked u/v can make some negative."""
+    a, b, M = _band_problem(10, 5, seed=2)
+    u = np.zeros(10)
+    v = np.full(10, M.data.max() + 1.0)  # u+v > M[i,j] for every edge
+    rc, min_rc, n_viol = _compute_reduced_costs(M, u, v)
+    assert min_rc < 0
+    assert n_viol == M.nnz
+
+
+def test_reduced_costs_matches_dense_formula():
+    """Vectorized rc equals the naive (i, j) loop on M.toarray()."""
+    a, b, M = _band_problem(12, 5, seed=3)
+    rng = np.random.default_rng(0)
+    u = rng.standard_normal(12)
+    v = rng.standard_normal(12)
+    rc_fast, _, _ = _compute_reduced_costs(M, u, v)
+    # Iterate via CSR structure so explicit zero entries are included,
+    # matching the vectorized implementation's nnz traversal.
+    rc_naive = np.empty(M.nnz)
+    for i in range(M.shape[0]):
+        for ptr in range(M.indptr[i], M.indptr[i + 1]):
+            j = M.indices[ptr]
+            rc_naive[ptr] = M.data[ptr] - u[i] - v[j]
+    np.testing.assert_allclose(rc_fast, rc_naive, atol=1e-12)

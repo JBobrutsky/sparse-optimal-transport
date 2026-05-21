@@ -79,6 +79,25 @@ def _parse_warm_start(warm_start, n, m):
     return G_csr, u, v
 
 
+def _compute_reduced_costs(M_csr, u, v, tol=0.0):
+    """Reduced cost ``M[i, j] - u[i] - v[j]`` over every nnz edge of M.
+
+    Returns ``(rc, min_rc, n_violating)`` where ``n_violating`` counts edges
+    with ``rc < -tol``.
+    """
+    indptr = M_csr.indptr
+    indices = M_csr.indices
+    data = M_csr.data
+    n = M_csr.shape[0]
+    row_idx = np.repeat(np.arange(n, dtype=np.intp), np.diff(indptr))
+    rc = data - u[row_idx] - v[indices]
+    if rc.size == 0:
+        return rc, 0.0, 0
+    min_rc = float(rc.min())
+    n_viol = int(np.sum(rc < -tol))
+    return rc, min_rc, n_viol
+
+
 def refine_from_warm_start(a, b, M_csr, warm_start, *,
                            numItermax, log, center_dual, reduced_cost_tol):
     raise NotImplementedError("filled in by later tasks")

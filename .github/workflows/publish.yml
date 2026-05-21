@@ -25,7 +25,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-13, macos-14]
+        # macos-13 (Intel) dropped: the GitHub-hosted runner pool is
+        # chronically oversubscribed and stalls publish jobs by 30+ min.
+        # Apple Silicon dominates the macOS Python user base on 3.10+;
+        # users on Intel Macs can build from the sdist.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14]
     steps:
       - uses: actions/checkout@v4
 

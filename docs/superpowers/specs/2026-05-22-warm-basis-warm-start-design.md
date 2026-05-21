@@ -39,11 +39,28 @@ Standard artificial-star initialization, then override `_pi` from `(u0, v0)`. Us
 
 A non-degenerate network simplex solution has exactly `n+m-1` basic arcs forming a spanning tree. Potential-only keeps the artificial star — even with perfect potentials, the solver must drive all `n+m` artificial arcs out of the basis before it can terminate. Full basis pre-loads the real spanning tree so no artificial arc overhead exists.
 
-### Degeneracy
+### Degeneracy and non-basic G_warm
 
-Zero-flow basic arcs are dropped from `G` by the solver (`if (f > eps)`). So `G_warm.nnz ≤ n+m-1`; the gap is the number of degenerate arcs lost. When the gap is large, spanning tree reconstruction from `G_warm` is approximate and the benefit of Mode B over Mode C diminishes.
+`G_warm.nnz` relative to `n+m-1` (the size of a valid spanning tree) determines mode selection:
 
-**O(1) early check:** `n_degenerate = (n+m-1) - G_warm.nnz`. If `n_degenerate / (n+m-1) > _DEGENERATE_WARN_THRESHOLD` (default `0.05`), emit a `RuntimeWarning` and use Mode C instead.
+**`G_warm.nnz < n+m-1` (degenerate — typical solver output)**
+Zero-flow basic arcs are dropped by the solver (`if (f > eps)`), so the gap `n_degenerate = (n+m-1) - G_warm.nnz` counts lost tree arcs. When the gap is large, spanning tree reconstruction is approximate and Mode B degrades toward Mode C.
+
+**`G_warm.nnz > n+m-1` (non-basic — user-constructed or perturbed)**
+G_warm is not a basic feasible solution (e.g., spatially perturbed optimal plan, convex combination of solutions). `n_degenerate` is negative, so the threshold check does not fire — Mode B is used. Before C++ dispatch, `G_warm.eliminate_zeros()` is called first (stored zeros inflate `nnz`); if `nnz` still exceeds `n+m-1`, a `RuntimeWarning` is emitted but Mode B proceeds. The union-find in C++ handles cycles gracefully by skipping arc-forming arcs — it extracts a valid spanning tree of exactly `n+m-1` arcs and the remainder become `STATE_LOWER`.
+
+Speedup in the non-basic case is primarily driven by **dual quality** (how close `(u, v)` are to dual-feasible on `M_full`), not spanning tree structure. To maximise spanning tree quality when G_warm is non-basic, arcs are **sorted by flow descending** before union-find: high-flow arcs are more likely to be in the optimal basis and are therefore preferred as tree arcs. Sorting costs O(nnz log nnz) in Python before the C++ call.
+
+**Mode selection summary:**
+
+| `G_warm.nnz` vs `n+m-1` | Action |
+|---|---|
+| Equal (non-degenerate) | Mode B, no sort needed |
+| Slightly less (mild degeneracy) | Mode B, C++ fills gaps with artificial arcs |
+| Much less (> 5% gap) | Warn + Mode C |
+| Greater (non-basic) | `eliminate_zeros()`, sort by flow desc, Mode B with warning if still > n+m-1 |
+
+**O(1) threshold check:** after `eliminate_zeros()`, compute `n_degenerate = (n+m-1) - G_warm.nnz`. If `n_degenerate / (n+m-1) > _DEGENERATE_WARN_THRESHOLD` (default `0.05`), emit `RuntimeWarning` and use Mode C.
 
 ---
 
@@ -55,7 +72,9 @@ emd(a, b, M_full, warm_start=(G, info))
        ├─ already-optimal branch          [unchanged]
        └─ non-optimal branch
             └─ bonneel_sparse_solve_warm() [sparse_utils.py — Python]
+                 ├─ eliminate_zeros()      fix inflated nnz
                  ├─ _degenerate_check()    O(1): (n+m-1) - G_warm.nnz
+                 ├─ sort by flow desc      O(nnz log nnz), improves union-find quality
                  ├─ Mode B path
                  │    └─ _bonneel.solve_sparse_warm_basis()   [C++]
                  │         warmBasisInit(): union-find + DFS + _pi inject
@@ -113,7 +132,23 @@ def bonneel_sparse_solve_warm(a, b, row_ptr, col_idx, costs, n, m,
     if numItermax is None:
         numItermax = _default_num_iter(n, m, len(costs))
     n_basic = n + m - 1
+
+    # Drop stored zeros before measuring nnz (inflated by scipy CSR bookkeeping).
+    G_warm = G_warm.copy()
+    G_warm.eliminate_zeros()
+
     n_degenerate = n_basic - G_warm.nnz
+
+    if n_degenerate < 0:
+        # G_warm is non-basic (e.g. user-constructed or perturbed plan).
+        warnings.warn(
+            f"warm_start G has {-n_degenerate} more nonzeros than a spanning tree "
+            f"(nnz={G_warm.nnz}, n+m-1={n_basic}). G_warm is not a basic feasible "
+            "solution; arcs will be sorted by flow and a spanning tree extracted.",
+            RuntimeWarning, stacklevel=4,
+        )
+        n_degenerate = 0  # treat as non-degenerate; sort handles quality
+
     if n_degenerate > _DEGENERATE_WARN_THRESHOLD * n_basic:
         warnings.warn(
             f"warm_start G has {n_degenerate} zero-flow basic arcs "
@@ -128,10 +163,15 @@ def bonneel_sparse_solve_warm(a, b, row_ptr, col_idx, costs, n, m,
     else:
         warm_basis_used = True
         coo = G_warm.tocoo()
+        # Sort by flow descending so union-find in C++ prefers high-flow arcs
+        # as tree arcs — they are more likely to be in the optimal basis.
+        order = np.argsort(coo.data)[::-1]
         rows, cols, vals, u, v = _bonneel.solve_sparse_warm_basis(
             a, b, row_ptr, col_idx, costs, u0, v0,
-            coo.row.astype(np.int32), coo.col.astype(np.int32),
-            coo.data.astype(np.float64), numItermax,
+            coo.row[order].astype(np.int32),
+            coo.col[order].astype(np.int32),
+            coo.data[order].astype(np.float64),
+            numItermax,
         )
     G = scipy.sparse.csr_matrix((vals, (rows, cols)), shape=(n, m))
     return G, u, v, warm_basis_used
@@ -184,6 +224,8 @@ refine_info = {
 | `test_warm_basis_threshold_fires_potential_only` | Same + assert `refine_info["warm_basis_used"] == False` |
 | `test_warm_basis_subset_support` | M_full ⊃ G_warm support: non-optimal branch takes warm basis path |
 | `test_warm_basis_different_metric_close` | Phase 1 on L1, Phase 2 on L2: cost matches cold L2 solve |
+| `test_warm_basis_non_basic_G_warn` | `G_warm.nnz > n+m-1` after `eliminate_zeros` → `RuntimeWarning`, correct result |
+| `test_warm_basis_non_basic_sort_helps` | Perturbed near-optimal G (non-basic): cost matches cold, `warm_basis_used=True` |
 
 ### `benchmarks/bench_refine.py` additions
 

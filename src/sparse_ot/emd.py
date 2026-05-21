@@ -91,9 +91,13 @@ def emd(a, b, M, numItermax=None, log=False, center_dual=True):
     converged = max(err_a, err_b) <= _MARGINAL_TOL
     if not converged:
         msg = (
-            f"network simplex did not converge: |G.sum(0)-b|={err_b:.2e}, "
-            f"|G.sum(1)-a|={err_a:.2e} (tol={_MARGINAL_TOL:.0e}). "
-            f"Try a larger numItermax (current={numItermax})."
+            f"marginals not satisfied: |G.sum(1)-a|={err_a:.2e}, "
+            f"|G.sum(0)-b|={err_b:.2e} (tol={_MARGINAL_TOL:.0e}). "
+            f"This usually means the sparse support cannot accommodate the "
+            f"given marginals (no feasible plan exists on those edges). "
+            f"Provide a denser cost matrix or accept the approximate flow. "
+            f"Less commonly, this can also mean numItermax was hit too early "
+            f"(current={numItermax}); rerun with a larger value to rule that out."
         )
         warnings.warn(msg, RuntimeWarning, stacklevel=2)
 

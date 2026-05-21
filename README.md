@@ -48,6 +48,32 @@ matching) are intrinsically sparse. Materialising them as dense costs
 matrices is wasteful and can be infeasible. This package gives you
 Bonneel's tight constants without the O(n·m) memory penalty.
 
+## Feasibility on sparse supports
+
+When you pass a sparse `M`, the transport plan is restricted to the
+edges you provide. The package checks that the support is connected
+and that supply totals match (`check_feasibility`), but **this does
+not guarantee an LP-feasible plan exists**.
+
+A small support can fail [Hall's condition](https://en.wikipedia.org/wiki/Hall%27s_marriage_theorem):
+some local block of rows `S` may collectively need to move more mass
+than the columns they reach can absorb. For example, a band-7 support
+(each row connects only to its 7 nearest columns) cannot route generic
+Dirichlet marginals at `n = 1000` — the corner rows have nowhere to
+shed their excess.
+
+When that happens we don't lie. The solver returns its best-effort
+flow, `info["result_code"] == 0`, and a `RuntimeWarning` fires
+explaining that the marginals weren't met. Compare to POT, which
+silently routes mass through any zero-cost or penalty edge in the
+densified representation and reports `success` with an arbitrary
+cost.
+
+In practice: build supports that are slightly denser than your
+marginals strictly require (k-NN with k chosen by validation, plus a
+small slack), or run with very dense support whenever you don't know
+the marginal distribution ahead of time.
+
 ## Convergence and the `numItermax` knob
 
 Bonneel's network simplex stops at `numItermax` pivots without raising.

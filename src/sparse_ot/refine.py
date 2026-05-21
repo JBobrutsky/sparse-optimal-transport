@@ -1,4 +1,4 @@
-"""Warm-start refinement for sparse-OT. See module docstring in Task 5."""
+"""Warm-start refinement for sparse-OT (see docs/refinement.md)."""
 from __future__ import annotations
 
 

@@ -50,3 +50,17 @@ def test_warm_start_with_dense_M_raises():
     fake_warm = (np.eye(2) * 0.5, np.zeros(2), np.zeros(2))
     with pytest.raises(NotImplementedError, match="sparse"):
         sparse_ot.emd(a, b, M_dense, warm_start=fake_warm)
+
+
+def test_warm_start_with_sparse_M_reaches_refine_stub():
+    """Sparse M + non-None warm_start dispatches into refine.py's stub,
+    which raises NotImplementedError until later tasks fill it in.
+    """
+    a, b, M = _band_problem(10, 3)
+    fake_warm = (
+        scipy.sparse.csr_matrix(M.shape),
+        np.zeros(10),
+        np.zeros(10),
+    )
+    with pytest.raises(NotImplementedError, match="later tasks"):
+        sparse_ot.emd(a, b, M, warm_start=fake_warm)

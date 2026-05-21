@@ -1,4 +1,65 @@
-"""Warm-start refinement for sparse-OT (see docs/refinement.md)."""
+"""Warm-start refinement for sparse optimal transport.
+
+Refines a warm-start OT solution to global optimality on a larger cost
+support, without paying for a cold solve from scratch.
+
+Algorithm (single-pass column generation on Bonneel's network simplex)
+======================================================================
+
+Given dual potentials ``(u, v)`` from a previous ``emd`` call on a restricted
+support ``S_warm ⊆ E_full``, dual feasibility on ``S_warm`` means
+``u[i] + v[j] ≤ M[i, j]`` for all ``(i, j) ∈ S_warm``. To verify global
+optimality on ``E_full``, compute the reduced cost
+``rc[i, j] = M[i, j] − u[i] − v[j]`` over every edge of ``M_full`` (one
+vectorized pass over the CSR ``nnz``):
+
+* If ``min(rc) ≥ −tol``: ``(u, v)`` is dual-feasible on ``E_full``, and
+  ``G_warm`` is primal-feasible for ``(a, b)`` with support in
+  ``S_warm ⊆ {(i, j) : rc[i, j] ≈ 0}``. By complementary slackness ``G_warm``
+  extended with zeros over ``E_full \\ S_warm`` is a global optimum on
+  ``(a, b, M_full)``. Return immediately — no re-solve.
+
+* Otherwise: violating edges define entering variables for the simplex on
+  ``M_full``. We re-solve Bonneel-sparse on the full ``M_full`` support
+  (cold in v1; warm-started from ``(u, v)`` once the C++ binding supports
+  it — see the design spec).
+
+Correctness follows from LP duality: a primal feasible flow whose support
+consists of edges with ``rc = 0`` and whose duals are ``(u, v)`` is optimal.
+
+Regime of optimality
+====================
+
+This path beats a cold solve when:
+
+* ``M_full`` is sparse (CSR) with moderate density — dense ``M_full`` is
+  rejected with ``NotImplementedError``.
+* ``S_warm`` covers a meaningful fraction of the optimal plan's support on
+  ``M_full``. In the limit ``S_warm = E_full`` the refinement degenerates to
+  a single verifier pass with no solve; in the limit ``S_warm`` is unrelated
+  to the optimum, the cold re-solve costs roughly the same as cold and the
+  verifier is pure overhead.
+
+See ``benchmarks/bench_refine.py`` for measured numbers and
+``docs/refinement.md`` for a worked example.
+
+References
+==========
+
+* Schmitzer, B. "A sparse multiscale algorithm for dense optimal
+  transport." *Journal of Mathematical Imaging and Vision*, 56(2):238–259,
+  2016. https://doi.org/10.1007/s10851-016-0653-9
+* Rauch, J. and Zanotti, L. "An improved implementation of Schmitzer's
+  sparse multiscale algorithm for discrete optimal transport on grids."
+  arXiv:2502.20905, 2025. https://arxiv.org/abs/2502.20905.
+  Reference implementation: https://github.com/johannesrauch/GridOT
+  (Boost license).
+* Bonneel, N. et al. "Displacement interpolation using Lagrangian mass
+  transport." *ACM TOG*, 30(6), 2011.
+  https://github.com/nbonneel/network_simplex
+* Bertsimas, D. and Tsitsiklis, J. *Introduction to Linear Optimization*,
+  Athena Scientific, 1997. §4 — column generation, dual feasibility test.
+"""
 from __future__ import annotations
 
 import numpy as np

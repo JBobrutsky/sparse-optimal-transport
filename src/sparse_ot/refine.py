@@ -112,13 +112,15 @@ def _default_tol(M_csr):
     return 1e-9 * max(1.0, float(np.abs(M_csr.data).max()))
 
 
-def _reshape_onto_support(G_warm_csr, M_csr):
-    """Return G with the same values as G_warm, on M_csr's index layout.
+def _drop_explicit_zeros(G_warm_csr):
+    """Return a copy of G_warm with explicit zero entries removed.
 
-    Precondition: nonzero support of G_warm is a subset of M_csr's support.
-    Output shares M_csr's shape; nnz equals G_warm.nnz (zeros are dropped).
+    Called on the already-optimal branch, where G_warm is already known to
+    have its support contained in M_csr's (by ``_verify_support_subset``).
+    The returned CSR keeps G_warm's index layout, not M_csr's, but the math
+    that follows (cost via ``G.multiply(M_csr).sum()``, marginal sums) is
+    layout-independent.
     """
-    # Eliminate explicit zeros for a clean output.
     G = G_warm_csr.copy()
     G.eliminate_zeros()
     return G
@@ -133,21 +135,39 @@ def _check_marginals_csr(G, a, b):
 
 
 def _verify_support_subset(G_warm_csr, M_csr):
-    """Raise if G_warm has a nonzero outside M_csr's stored support."""
+    """Raise if G_warm has a nonzero outside M_csr's stored support.
+
+    Vectorized: encodes (row, col) as int64 keys row*m + col, sorts M's
+    keys once, then np.searchsorted to check each G nonzero. O(nnz log nnz)
+    in pure NumPy.
+    """
     G_coo = G_warm_csr.tocoo()
     nz = G_coo.data != 0.0
-    g_rows = G_coo.row[nz]
-    g_cols = G_coo.col[nz]
-    if g_rows.size == 0:
+    if not np.any(nz):
         return
+    n, m = M_csr.shape
+    g_keys = (G_coo.row[nz].astype(np.int64) * m
+              + G_coo.col[nz].astype(np.int64))
+
     M_coo = M_csr.tocoo()
-    m_keys = set(zip(M_coo.row.tolist(), M_coo.col.tolist()))
-    for r, c in zip(g_rows.tolist(), g_cols.tolist()):
-        if (r, c) not in m_keys:
-            raise ValueError(
-                f"warm_start G has a nonzero at ({r}, {c}) which is not in "
-                f"M_full's support; warm_start is incompatible with M_full"
-            )
+    m_keys = (M_coo.row.astype(np.int64) * m
+              + M_coo.col.astype(np.int64))
+    m_keys.sort()
+
+    idx = np.searchsorted(m_keys, g_keys)
+    # idx == len means key > all; clip to safe index then check equality
+    in_range = idx < m_keys.size
+    found = np.zeros_like(g_keys, dtype=bool)
+    found[in_range] = m_keys[idx[in_range]] == g_keys[in_range]
+
+    if not np.all(found):
+        bad = np.where(~found)[0][0]
+        r = int(G_coo.row[nz][bad])
+        c = int(G_coo.col[nz][bad])
+        raise ValueError(
+            f"warm_start G has a nonzero at ({r}, {c}) which is not in "
+            f"M_full's support; warm_start is incompatible with M_full"
+        )
 
 
 def refine_from_warm_start(a, b, M_csr, warm_start, *,
@@ -166,7 +186,7 @@ def refine_from_warm_start(a, b, M_csr, warm_start, *,
     rc, min_rc, n_viol = _compute_reduced_costs(M_csr, u, v, tol=tol)
 
     if min_rc >= -tol:
-        G = _reshape_onto_support(G_warm, M_csr)
+        G = _drop_explicit_zeros(G_warm)
         refine_info = {
             "warm_start_optimal": True,
             "num_passes": 0,

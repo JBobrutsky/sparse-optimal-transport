@@ -86,7 +86,7 @@ M9 = band_cost(n, k=9)
 G9, info9 = sot.emd(a, b, M9, warm_start=(G3, info3), log=True)
 print("Phase 2 refine info:", info9["refine"])
 # {'warm_start_optimal': True, 'num_passes': 0,
-#  'initial_min_reduced_cost': 0.0, 'edges_added': 0}
+#  'initial_min_reduced_cost': ≈0.0, 'edges_added': 0}
 print("Phase 2 cost on k=9:", info9["cost"])
 assert abs(info9["cost"] - info3["cost"]) < 1e-12
 
@@ -109,7 +109,12 @@ Reading the output:
 * `initial_min_reduced_cost` is the minimum of
   `M_full[i, j] − u[i] − v[j]` over every nnz of `M_full`. A value ≥ 0
   (within tolerance) means the warm-start's duals are already feasible on
-  the larger support, and refinement returns `G_warm` directly.
+  the larger support, and refinement returns `G_warm` directly. Due to
+  floating-point arithmetic, "zero" is reported as a small negative number
+  in the range `[−tol, 0]` even when the warm-start is optimal; `tol`
+  defaults to `1e-9 * max(1, ‖M‖_∞)`.
+* `num_passes` is 0 when the already-optimal branch fires (no re-solve)
+  and 1 when the cold re-solve fallback is used.
 * `edges_added` is the change in `nnz(G)` from `G_warm` to `G_refined`. In
   the already-optimal branch it is 0 by construction; in the cold-re-solve
   branch it is the difference in the solvers' chosen bases.

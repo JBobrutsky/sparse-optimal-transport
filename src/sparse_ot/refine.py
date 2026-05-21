@@ -7,7 +7,7 @@ import scipy.sparse
 import warnings
 
 from sparse_ot.feasibility import check_feasibility
-from sparse_ot.sparse_utils import to_csr
+from sparse_ot.sparse_utils import to_csr, bonneel_sparse_solve
 
 _MARGINAL_TOL = 1e-6
 
@@ -178,7 +178,7 @@ def refine_from_warm_start(a, b, M_csr, warm_start, *,
     _verify_support_subset(G_warm, M_csr)
 
     # Feasibility precondition on M_full (same as cold path).
-    row_ptr, col_idx, _costs, _n, _m, _k = to_csr(M_csr, 0.0)
+    row_ptr, col_idx, costs, _n, _m, k = to_csr(M_csr, 0.0)
     check_feasibility(a, b, row_ptr, col_idx)
 
     tol = _default_tol(M_csr) if reduced_cost_tol is None else float(reduced_cost_tol)
@@ -199,18 +199,7 @@ def refine_from_warm_start(a, b, M_csr, warm_start, *,
         # "Pybind / C++ extension" and "Open questions". The verifier above
         # is still useful -- it confirms when no re-solve is needed at all.
         # The cold re-solve produces the optimum on (a, b, M_full).
-        from sparse_ot._ext import _bonneel
-        row_ptr_full, col_idx_full, costs_full, _, _, k_full = to_csr(M_csr, 0.0)
-        if numItermax is None:
-            num_iter = min(50_000_000, max(100_000, 100 * (n + m + k_full)))
-        else:
-            num_iter = int(numItermax)
-        rows_out, cols_out, vals_out, u, v = _bonneel.solve_sparse(
-            a, b, row_ptr_full, col_idx_full, costs_full, num_iter
-        )
-        G = scipy.sparse.csr_matrix(
-            (vals_out, (rows_out, cols_out)), shape=(n, m)
-        )
+        G, u, v = bonneel_sparse_solve(a, b, row_ptr, col_idx, costs, n, m, numItermax)
         edges_added = int(G.nnz - G_warm.nnz)
         refine_info = {
             "warm_start_optimal": False,

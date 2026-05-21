@@ -3,6 +3,42 @@ import numpy as np
 import scipy.sparse
 
 
+def _default_num_iter(n, m, k):
+    # Network simplex empirically converges in O((n+m) * sqrt(k)) pivots on
+    # well-behaved OT problems. Pick a generous linear multiple of the problem
+    # size so neither small nor large instances truncate. Capped to keep
+    # pathological inputs from running unboundedly.
+    return min(50_000_000, max(100_000, 100 * (n + m + k)))
+
+
+def bonneel_sparse_solve(a, b, row_ptr, col_idx, costs, n, m, numItermax=None):
+    """Run Bonneel's network simplex on a pre-built CSR system.
+
+    Parameters
+    ----------
+    a, b        : float64 1-D arrays (marginals, already normalised).
+    row_ptr, col_idx, costs : CSR arrays from ``to_csr``.
+    n, m        : source / target sizes.
+    numItermax  : pivot cap; ``None`` picks the problem-size-aware default.
+
+    Returns
+    -------
+    G : CSR scipy matrix (n, m)
+    u : float64 1-D, shape (n,)
+    v : float64 1-D, shape (m,)
+    """
+    from sparse_ot._ext import _bonneel
+    if numItermax is None:
+        numItermax = _default_num_iter(n, m, len(costs))
+    else:
+        numItermax = int(numItermax)
+    rows, cols, vals, u, v = _bonneel.solve_sparse(
+        a, b, row_ptr, col_idx, costs, numItermax
+    )
+    G = scipy.sparse.csr_matrix((vals, (rows, cols)), shape=(n, m))
+    return G, u, v
+
+
 def to_csr(M, cost_sparsity_threshold=0.0):
     """Convert a cost matrix to CSR format for the C++ solvers.
 

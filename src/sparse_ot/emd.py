@@ -4,7 +4,7 @@ import numpy as np
 import scipy.sparse
 
 from sparse_ot._ext import _bonneel
-from sparse_ot.sparse_utils import to_csr
+from sparse_ot.sparse_utils import to_csr, _default_num_iter, bonneel_sparse_solve
 from sparse_ot.feasibility import check_feasibility
 
 # Convergence tolerance for the post-solve marginal check. Bonneel's network
@@ -13,13 +13,6 @@ from sparse_ot.feasibility import check_feasibility
 # than machine epsilon. Anything above this is treated as non-convergence.
 _MARGINAL_TOL = 1e-6
 
-
-def _default_num_iter(n, m, k):
-    # Network simplex empirically converges in O((n+m) * sqrt(k)) pivots on
-    # well-behaved OT problems. Pick a generous linear multiple of the problem
-    # size so neither small nor large instances truncate. Capped to keep
-    # pathological inputs from running unboundedly.
-    return min(50_000_000, max(100_000, 100 * (n + m + k)))
 
 
 def _check_marginals(G, a, b):
@@ -87,12 +80,7 @@ def emd(a, b, M, numItermax=None, log=False, center_dual=True,
                 f"M must have shape ({len(a)}, {len(b)}), got ({n}, {m})"
             )
         check_feasibility(a, b, row_ptr, col_idx)
-        if numItermax is None:
-            numItermax = _default_num_iter(n, m, k)
-        rows, cols, vals, u, v = _bonneel.solve_sparse(
-            a, b, row_ptr, col_idx, costs, numItermax
-        )
-        G = scipy.sparse.csr_matrix((vals, (rows, cols)), shape=(n, m))
+        G, u, v = bonneel_sparse_solve(a, b, row_ptr, col_idx, costs, n, m, numItermax)
         M_for_cost = M
     else:
         M_dense = np.ascontiguousarray(M, dtype=np.float64)

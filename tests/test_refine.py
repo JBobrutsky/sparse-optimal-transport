@@ -52,13 +52,10 @@ def test_warm_start_with_dense_M_raises():
         sparse_ot.emd(a, b, M_dense, warm_start=fake_warm)
 
 
-def test_warm_start_with_sparse_M_non_optimal_raises():
-    """Sparse M + non-optimal warm_start dispatches to non-optimal branch,
-    which raises NotImplementedError until Task 5 fills it in.
-
-    We force non-optimality by setting v large enough to make all reduced
-    costs negative.
-    """
+def test_warm_start_with_sparse_M_non_optimal_uses_cold_resolve():
+    """Sparse M + non-optimal warm_start goes through the non-optimal
+    branch: cold re-solve produces the optimum, refine info reports
+    warm_start_optimal=False with num_passes=1."""
     a, b, M = _band_problem(10, 3)
     n = 10
     bad_warm = (
@@ -66,8 +63,12 @@ def test_warm_start_with_sparse_M_non_optimal_raises():
         np.zeros(n),
         np.full(n, M.data.max() + 1.0),
     )
-    with pytest.raises(NotImplementedError, match="Task 5"):
-        sparse_ot.emd(a, b, M, warm_start=bad_warm)
+    G, info = sparse_ot.emd(a, b, M, warm_start=bad_warm, log=True)
+    assert info["refine"]["warm_start_optimal"] is False
+    assert info["refine"]["num_passes"] == 1
+    # And it produced a real flow (marginals roughly satisfied).
+    np.testing.assert_allclose(np.asarray(G.sum(axis=1)).ravel(), a, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(G.sum(axis=0)).ravel(), b, atol=1e-6)
 
 
 from sparse_ot.refine import _parse_warm_start
@@ -232,3 +233,69 @@ def test_warm_start_already_optimal_roundtrip():
     np.testing.assert_allclose(
         G_refined.toarray(), G_cold.toarray(), atol=1e-12
     )
+
+
+def _build_band_M(n, k):
+    """Build a (n, n) k-NN band CSR with costs (i - j)^2. No randomness."""
+    half = k // 2
+    rows, cols, costs = [], [], []
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, lo + k)
+        lo = max(0, hi - k)
+        for j in range(lo, hi):
+            rows.append(i)
+            cols.append(j)
+            costs.append(float((i - j) ** 2))
+    return scipy.sparse.csr_matrix(
+        (costs, (rows, cols)), shape=(n, n)
+    )
+
+
+def test_warm_start_subsupport_converges_to_cold_optimum():
+    """Warm-start from a k=5 band; refine on k=15 band; cost matches a
+    fresh cold solve on the k=15 band within 1e-9."""
+    n = 50
+    rng = np.random.default_rng(7)
+    M_warm = _build_band_M(n, 5)
+    M_full = _build_band_M(n, 15)
+
+    # Marginals that are feasible on the WARM support (so phase 1 converges).
+    half = 5 // 2
+    rows = []
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, lo + 5)
+        lo = max(0, hi - 5)
+        rows.extend([i] * (hi - lo))
+    w = np.exp(rng.standard_normal(len(rows)))
+    w /= w.sum()
+    a = np.zeros(n)
+    b = np.zeros(n)
+    cols = []
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, lo + 5)
+        lo = max(0, hi - 5)
+        cols.extend(range(lo, hi))
+    rows_arr = np.asarray(rows)
+    cols_arr = np.asarray(cols)
+    np.add.at(a, rows_arr, w)
+    np.add.at(b, cols_arr, w)
+    a /= a.sum()
+    b /= b.sum()
+
+    G_warm, info_warm = sparse_ot.emd(a, b, M_warm, log=True)
+    G_full_cold, info_full_cold = sparse_ot.emd(a, b, M_full, log=True)
+    G_refined, info_refined = sparse_ot.emd(
+        a, b, M_full, warm_start=(G_warm, info_warm), log=True
+    )
+
+    # Refinement matches cold-on-full to within 1e-9 (LP-grade).
+    assert abs(info_refined["cost"] - info_full_cold["cost"]) < 1e-9
+    np.testing.assert_allclose(
+        G_refined.toarray(), G_full_cold.toarray(), atol=1e-9
+    )
+    # The refinement either found the warm-start already optimal (0 passes)
+    # or needed exactly one re-solve.
+    assert info_refined["refine"]["num_passes"] in (0, 1)

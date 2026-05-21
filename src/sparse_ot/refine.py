@@ -194,10 +194,30 @@ def refine_from_warm_start(a, b, M_csr, warm_start, *,
             "edges_added": 0,
         }
     else:
-        # Filled in by Task 5.
-        raise NotImplementedError(
-            "non-optimal warm_start branch -- implemented in Task 5"
+        # v1 fallback: cold re-solve on M_full. The C++ pybind binding does
+        # not yet accept (u0, v0) for true basis warm-start; see spec
+        # "Pybind / C++ extension" and "Open questions". The verifier above
+        # is still useful -- it confirms when no re-solve is needed at all.
+        # The cold re-solve produces the optimum on (a, b, M_full).
+        from sparse_ot._ext import _bonneel
+        row_ptr_full, col_idx_full, costs_full, _, _, k_full = to_csr(M_csr, 0.0)
+        if numItermax is None:
+            num_iter = min(50_000_000, max(100_000, 100 * (n + m + k_full)))
+        else:
+            num_iter = int(numItermax)
+        rows_out, cols_out, vals_out, u, v = _bonneel.solve_sparse(
+            a, b, row_ptr_full, col_idx_full, costs_full, num_iter
         )
+        G = scipy.sparse.csr_matrix(
+            (vals_out, (rows_out, cols_out)), shape=(n, m)
+        )
+        edges_added = int(G.nnz - G_warm.nnz)
+        refine_info = {
+            "warm_start_optimal": False,
+            "num_passes": 1,
+            "initial_min_reduced_cost": min_rc,
+            "edges_added": max(edges_added, 0),
+        }
 
     if center_dual:
         shift = float(u.mean())

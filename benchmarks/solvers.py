@@ -25,15 +25,17 @@ class SolveResult:
 
 
 def _measure(fn):
-    """Run fn(), return (return_value, wall_s, peak_mb). Uses tracemalloc."""
-    tracemalloc.start()
+    """Call fn(), return (return_value, wall_s_float, peak_mb_float)."""
+    was_tracing = tracemalloc.is_tracing()
+    if not was_tracing:
+        tracemalloc.start()
     t0 = time.perf_counter()
-    result = fn()
+    out = fn()
     wall_s = time.perf_counter() - t0
-    _, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-    peak_mb = peak / (1024 * 1024)
-    return result, wall_s, peak_mb
+    _, peak_bytes = tracemalloc.get_traced_memory()
+    if not was_tracing:
+        tracemalloc.stop()
+    return out, wall_s, peak_bytes / 1024 ** 2
 
 
 def _marginal_errors(G, a, b):
@@ -76,7 +78,7 @@ def solve_pot(a, b, M) -> SolveResult | None:
         M_dense = M.toarray()
     else:
         n = M.shape[0]
-        M_dense = M
+        M_dense = np.asarray(M, dtype=np.float64)
 
     if n > POT_MAX_N:
         return None
@@ -123,7 +125,7 @@ def solve_ortools(a, b, M) -> SolveResult | None:
             )
     else:
         for i in range(n):
-            for j in range(M.shape[1]):
+            for j in range(n):
                 c = M[i, j]
                 smcf.add_arc_with_capacity_and_unit_cost(
                     i, n + j, SCALE, int(round(c * SCALE))

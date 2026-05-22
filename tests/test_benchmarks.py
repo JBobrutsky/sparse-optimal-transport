@@ -173,6 +173,31 @@ def test_report_quick_produces_pngs(tmp_path):
         assert (figures_dir / name).exists(), f"Missing figure: {name}"
 
 
+def test_fig_warm_speedup_skips_k_with_no_reduction(tmp_path):
+    """fig_warm_speedup must not plot (k, warm_ratio) where k_warm == k."""
+    from benchmarks.report import fig_warm_speedup
+
+    cells = [
+        # Cold
+        {"scenario": "sparse_cold", "solver": "sparse_ot", "n": 1000, "k": 2,
+         "warm_ratio": None, "wall_s": 0.10, "peak_mb": 0.0, "cost": 0.0,
+         "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
+        {"scenario": "sparse_cold", "solver": "sparse_ot", "n": 1000, "k": 32,
+         "warm_ratio": None, "wall_s": 0.50, "peak_mb": 0.0, "cost": 0.0,
+         "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
+        # Warm (warm_ratio=0.25 → k_warm=2 for k=2 [degenerate] and k_warm=8 for k=32)
+        {"scenario": "sparse_warm", "solver": "sparse_ot", "n": 1000, "k": 2,
+         "warm_ratio": 0.25, "wall_s": 0.10, "peak_mb": 0.0, "cost": 0.0,
+         "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
+        {"scenario": "sparse_warm", "solver": "sparse_ot", "n": 1000, "k": 32,
+         "warm_ratio": 0.25, "wall_s": 0.20, "peak_mb": 0.0, "cost": 0.0,
+         "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
+    ]
+    result = fig_warm_speedup(cells, tmp_path)
+    assert result == (32, 0.25), f"expected (32, 0.25), got {result}"
+    assert (tmp_path / "warm_speedup.png").exists()
+
+
 @pytest.mark.parametrize("n,k", [(50, 1), (50, 2), (200, 4), (1000, 8)])
 def test_generator_produces_feasible_instance(n, k):
     from sparse_ot.feasibility import check_feasibility

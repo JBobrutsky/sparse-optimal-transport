@@ -200,32 +200,63 @@ def fig_sparse_cold(cells: list, figures_dir: Path) -> None:
 # Figure 3: warm_speedup.png
 # ---------------------------------------------------------------------------
 
-def fig_warm_speedup(cells: list, figures_dir: Path) -> None:
+def fig_warm_speedup(cells: list, figures_dir: Path):
     out_path = figures_dir / "warm_speedup.png"
 
+    # a) Build cold_map: (n, k) -> wall_s for sparse_cold/sparse_ot
     cold_map: dict[tuple, float] = {}
-    warm_map: dict[tuple, float] = {}
-
     for c in cells:
         if c["extrapolated"] or c["wall_s"] is None or c["solver"] != "sparse_ot":
             continue
-        key = (c["n"], c["k"])
         if c["scenario"] == "sparse_cold":
-            cold_map[key] = c["wall_s"]
-        elif c["scenario"] == "sparse_warm" and c.get("warm_ratio") == 0.25:
-            warm_map[key] = c["wall_s"]
+            cold_map[(c["n"], c["k"])] = c["wall_s"]
 
-    common_ks = {p[1] for p in cold_map} & {p[1] for p in warm_map}
+    # b) Collect candidate (k, warm_ratio) where k_warm < k and a cold match exists.
+    candidates: set[tuple] = set()
+    for c in cells:
+        if c["extrapolated"] or c["wall_s"] is None or c["solver"] != "sparse_ot":
+            continue
+        if c["scenario"] != "sparse_warm":
+            continue
+        wr = c.get("warm_ratio")
+        if wr is None:
+            continue
+        k = c["k"]
+        n = c["n"]
+        if k is None:
+            continue
+        k_warm = max(2, int(round(k * wr)))
+        if k_warm >= k:
+            continue
+        if (n, k) not in cold_map:
+            continue
+        candidates.add((k, wr))
 
-    if not common_ks:
-        _placeholder(out_path, "No common k values for cold vs warm (warm_ratio=0.25)")
-        return
+    # c) No candidates → placeholder, return None
+    if not candidates:
+        _placeholder(out_path, "No (k, warm_ratio) with k_warm < k and matching cold cell")
+        return None
 
-    k_plot = min(common_ks)
+    # d) Pick smallest k_warm/k ratio; tiebreak smallest k.
+    k_plot, ratio_plot = min(
+        candidates,
+        key=lambda kw: (max(2, int(round(kw[0] * kw[1]))) / kw[0], kw[0]),
+    )
 
+    # e) Build cold_pts and warm_pts.
     cold_pts = sorted((n, t) for (n, k), t in cold_map.items() if k == k_plot)
-    warm_pts = sorted((n, t) for (n, k), t in warm_map.items() if k == k_plot)
+    warm_pts = sorted(
+        (c["n"], c["wall_s"])
+        for c in cells
+        if c["scenario"] == "sparse_warm"
+        and c["solver"] == "sparse_ot"
+        and not c["extrapolated"]
+        and c["wall_s"] is not None
+        and c["k"] == k_plot
+        and c.get("warm_ratio") == ratio_plot
+    )
 
+    # f) Plot
     fig, ax = plt.subplots(figsize=(7, 5))
     if cold_pts:
         ns_c, ts_c = zip(*cold_pts)
@@ -234,12 +265,12 @@ def fig_warm_speedup(cells: list, figures_dir: Path) -> None:
         ns_w, ts_w = zip(*warm_pts)
         ax.plot(
             ns_w, ts_w, color="tab:orange", marker="s", linestyle="-",
-            label=f"warm (ratio=0.25, k={k_plot})",
+            label=f"warm (ratio={ratio_plot}, k={k_plot})",
         )
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_title(f"Warm-start speedup at k={k_plot} (warm_ratio=0.25)")
+    ax.set_title(f"Warm-start speedup at k={k_plot} (warm_ratio={ratio_plot})")
     ax.set_xlabel("n")
     ax.set_ylabel("wall time (s)")
     ax.legend()
@@ -247,6 +278,9 @@ def fig_warm_speedup(cells: list, figures_dir: Path) -> None:
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
+
+    # g) Return chosen pair
+    return (k_plot, ratio_plot)
 
 
 # ---------------------------------------------------------------------------

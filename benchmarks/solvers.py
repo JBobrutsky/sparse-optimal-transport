@@ -75,7 +75,10 @@ def solve_pot(a, b, M) -> SolveResult | None:
         if M.nnz > POT_MAX_NNZ:
             return None
         n = M.shape[0]
-        M_dense = M.toarray()
+        penalty = float(M.data.max()) * n * 10 if M.nnz > 0 else 1.0
+        M_dense = np.full((n, n), penalty, dtype=np.float64)
+        coo = M.tocoo()
+        M_dense[coo.row, coo.col] = coo.data
     else:
         n = M.shape[0]
         M_dense = np.asarray(M, dtype=np.float64)

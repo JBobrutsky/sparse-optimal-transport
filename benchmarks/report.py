@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import json
+import statistics
 import sys
 from pathlib import Path
 
@@ -58,6 +59,32 @@ def _placeholder(out_path: Path, text: str) -> None:
     ax.axis("off")
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Aggregation
+# ---------------------------------------------------------------------------
+
+def _aggregate(cells):
+    """Group non-extrapolated cells by key and return median wall_s/peak_mb."""
+    from collections import defaultdict
+    groups = defaultdict(list)
+    passthrough = []
+    for c in cells:
+        if c["extrapolated"]:
+            passthrough.append(c)
+        else:
+            key = (c["scenario"], c["n"], c["k"], c["solver"], c["warm_ratio"])
+            groups[key].append(c)
+    aggregated = []
+    for key, group in groups.items():
+        rep = dict(group[0])
+        ws = [g["wall_s"] for g in group if g["wall_s"] is not None]
+        pms = [g["peak_mb"] for g in group if g["peak_mb"] is not None]
+        rep["wall_s"] = statistics.median(ws) if ws else None
+        rep["peak_mb"] = statistics.median(pms) if pms else None
+        aggregated.append(rep)
+    return aggregated + passthrough
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +368,7 @@ def main() -> None:
     tag = "quick" if args.quick else ("mid" if args.mid else "full")
     data = _load(tag)
     cells = data["cells"]
+    cells = _aggregate(cells)
 
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 

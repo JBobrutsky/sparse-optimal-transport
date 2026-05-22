@@ -141,14 +141,16 @@ All measured sparse-ot cells agree with POT to better than 1e-10 relative cost e
 
 ## Memory cutoffs
 
-`bench.py` skips cells beyond these defaults (16 GB target):
+`benchmarks/solvers.py` skips solver calls beyond these thresholds to avoid OOM:
 
-| Constant         | Default       | Effect                                     |
-|------------------|---------------|--------------------------------------------|
-| `MAX_DENSE_N`    | 8 192         | Dense suite skipped above this             |
-| `MAX_SPARSE_NNZ` | 200 000 000   | Sparse cell skipped above this nnz         |
+| Constant          | Value     | Effect                                                    |
+|-------------------|-----------|-----------------------------------------------------------|
+| `POT_MAX_N`       | 2 000     | POT (`ot.emd`) skipped when n > 2 000                    |
+| `POT_MAX_NNZ`     | 100 000   | POT skipped when sparse nnz > 100 000                    |
+| `ORTOOLS_MAX_N`   | 2 000     | OR-Tools skipped when n > 2 000                          |
+| `ORTOOLS_MAX_NNZ` | 500 000   | OR-Tools skipped when sparse nnz > 500 000               |
 
-Raise the constants for larger hardware.
+Raise the constants in `benchmarks/solvers.py` for larger hardware.
 
 ## Releasing
 

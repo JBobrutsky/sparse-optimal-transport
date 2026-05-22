@@ -258,9 +258,13 @@ def _compute_fits(cells):
         f = _fit_dense(solver)
         if f:
             fits[f"{solver}_dense"] = f
-        f = _fit_sparse(solver)
-        if f:
-            fits[f"{solver}_sparse"] = f
+
+    # pot_sparse is intentionally skipped: POT converts sparse→dense before
+    # solving, so the k dimension is noise. Fitting it with a 3-param formula
+    # would be misleading; we just omit extrapolation for pot in sparse_cold.
+    f = _fit_sparse("ortools")
+    if f:
+        fits["ortools_sparse"] = f
 
     return fits
 
@@ -304,7 +308,6 @@ def _add_extrapolated_cells(cells, fits, dense_ns, knn_ns, knn_ks):
             if k > n:
                 continue
             for solver, fit_key in [
-                ("pot",     "pot_sparse"),
                 ("ortools", "ortools_sparse"),
             ]:
                 if (solver, n, k) in measured_sparse:

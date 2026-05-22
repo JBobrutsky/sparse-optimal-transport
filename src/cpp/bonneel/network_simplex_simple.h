@@ -49,6 +49,7 @@
 #include <algorithm>
 #include <numeric>
 #include <stack>
+#include <queue>
 #ifdef HASHMAP
 #include <unordered_map>
 #else
@@ -917,55 +918,84 @@ namespace lemon {
 			std::vector<bool>     fwd(nn, true);
 			std::vector<std::vector<int>> children(nn + 1);  // children[u] list
 
-			// Process warm arcs (sorted by flow desc by Python caller).
-			// Convert raw source/target to _node_id space for consistency.
-			for (int k = 0; k < n_warm; k++) {
-				int s = _node_id(warm_src[k]);           // _node_id of source node
-				int t = _node_id(n + warm_tgt[k]);       // _node_id of target node
-				int rs = uf_find(s), rt = uf_find(t);
-				if (rs == rt) continue;                  // would form a cycle — skip
+			// --- Phase 1: Collect tree edges via union-find (cycle detection only) ---
+			std::vector<ArcsType> tree_arcs;
+			std::vector<int>      tree_src_nid, tree_tgt_nid;
 
-				// Merge components: make s a child of t in the tree.
+			for (int k = 0; k < n_warm; k++) {
+				int s = _node_id(warm_src[k]);      // _node_id of source node
+				int t = _node_id(n + warm_tgt[k]);  // _node_id of target node
+				int rs = uf_find(s), rt = uf_find(t);
+				if (rs == rt) continue;             // would form a cycle — skip
 				uf[rs] = rt;
-				par[s]      = t;
-				pred_arc[s] = arc_ids[k];
-				fwd[s]      = true;
-				children[t].push_back(s);
+				tree_arcs.push_back(arc_ids[k]);
+				tree_src_nid.push_back(s);
+				tree_tgt_nid.push_back(t);
 				_state[arc_ids[k]] = STATE_TREE;
 				_flow[arc_ids[k]]  = static_cast<Value>(warm_flow[k]);
 			}
 
-			// Attach unspanned real nodes to _root via artificial arcs.
-			// Artificial arc index e = _arc_num + u_raw, where u_raw is the raw
-			// node index (0..nn-1) — matching init()'s layout: e = _arc_num + u.
-			// For unspanned nodes we also reset _pi to match init()'s convention:
+			// --- Phase 2: Attach unspanned nodes to _root via artificial arcs ---
+			// Artificial arc index e = _arc_num + u_raw — matches init()'s layout.
+			// For unspanned nodes reset _pi to init()'s convention:
 			//   supply >= 0 -> forward arc (u->root), _pi[u] = 0, _cost[e] = 0
 			//   supply <  0 -> backward arc (root->u), _pi[u] = ART_COST, _cost[e] = ART_COST
 			for (int u_raw = 0; u_raw < nn; u_raw++) {
-				int u = _node_id(u_raw);  // _node_id space
+				int u = _node_id(u_raw);
 				if (uf_find(u) != uf_find(_root)) {
 					uf[uf_find(u)] = _root;
-					children[_root].push_back(u);
 					ArcsType e = _arc_num + u_raw;
-					par[u]      = _root;
-					pred_arc[u] = e;
-					// Direction and cost match init() EQ-supply convention exactly.
 					if (_supply[u] >= 0) {
-						fwd[u]         = true;
-						_pi[u]         = 0;
-						_source[e]     = u;
-						_target[e]     = _root;
-						_flow[e]       = static_cast<Value>(_supply[u]);
-						_cost[e]       = 0;
+						_pi[u]     = 0;
+						_source[e] = u;
+						_target[e] = _root;
+						_flow[e]   = static_cast<Value>(_supply[u]);
+						_cost[e]   = 0;
 					} else {
-						fwd[u]         = false;
-						_pi[u]         = ART_COST;
-						_source[e]     = _root;
-						_target[e]     = u;
-						_flow[e]       = static_cast<Value>(-_supply[u]);
-						_cost[e]       = ART_COST;
+						_pi[u]     = ART_COST;
+						_source[e] = _root;
+						_target[e] = u;
+						_flow[e]   = static_cast<Value>(-_supply[u]);
+						_cost[e]   = ART_COST;
 					}
 					_state[e] = STATE_TREE;
+				}
+			}
+
+			// --- Phase 3: Build tree structure via BFS from _root ---
+			// Build undirected adjacency list from all tree arcs (real + artificial).
+			std::vector<std::vector<std::pair<int, ArcsType>>> adj(nn + 1);
+
+			for (int k = 0; k < (int)tree_arcs.size(); k++) {
+				int s = tree_src_nid[k], t = tree_tgt_nid[k];
+				adj[s].emplace_back(t, tree_arcs[k]);
+				adj[t].emplace_back(s, tree_arcs[k]);
+			}
+			for (int u_raw = 0; u_raw < nn; u_raw++) {
+				ArcsType e = _arc_num + u_raw;
+				if (_state[e] == STATE_TREE) {
+					int u = _node_id(u_raw);
+					adj[u].emplace_back(_root, e);
+					adj[_root].emplace_back(u, e);
+				}
+			}
+
+			// BFS from _root: assign parent pointers uniquely for each node.
+			std::vector<bool> visited(nn + 1, false);
+			std::queue<int> bfs;
+			bfs.push(_root);
+			visited[_root] = true;
+			while (!bfs.empty()) {
+				int u = bfs.front(); bfs.pop();
+				for (auto& [v, arc_id] : adj[u]) {
+					if (!visited[v]) {
+						visited[v]    = true;
+						par[v]        = u;
+						pred_arc[v]   = arc_id;
+						fwd[v]        = (_source[arc_id] == v);
+						children[u].push_back(v);
+						bfs.push(v);
+					}
 				}
 			}
 

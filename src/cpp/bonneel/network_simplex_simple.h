@@ -47,6 +47,9 @@
 #include <vector>
 #include <limits>
 #include <algorithm>
+#include <numeric>
+#include <stack>
+#include <queue>
 #ifdef HASHMAP
 #include <unordered_map>
 #else
@@ -810,6 +813,268 @@ namespace lemon {
 		/// \see resetParams(), reset()
 		ProblemType run() {
 			if (!init()) return INFEASIBLE;
+			return start();
+		}
+
+		/// \brief Run with warm dual potentials (Mode C warm start).
+		///
+		/// Identical to run() but overrides the node potentials with the
+		/// provided warm values after init() builds the artificial spanning tree.
+		/// The pivot loop then starts from a better dual position.
+		///
+		/// \param u0  Source potentials, length n (0-indexed source nodes).
+		/// \param v0  Target potentials, length m (0-indexed target columns).
+		/// \param n   Number of source nodes.
+		/// \param m   Number of target nodes.
+		ProblemType runWarmPotentials(const double* u0, const double* v0, int n, int m) {
+			if (!init()) return INFEASIBLE;
+			// Override _pi with warm values. Root stays at 0.
+			// _pi is indexed via _node_id (reversed mapping). Sign convention:
+			//   potential(di(i))   = _pi[_node_id(i)]   => inject -u0[i]
+			//   potential(di(n+j)) = _pi[_node_id(n+j)] => inject  v0[j]
+			for (int i = 0; i < n; i++) _pi[_node_id(i)]     = -u0[i];
+			for (int j = 0; j < m; j++) _pi[_node_id(n + j)] =  v0[j];
+			return start();
+		}
+
+		/// \brief Initialize a full-basis warm start (Mode B).
+		///
+		/// Replaces init()'s artificial-star block. Union-find builds a spanning
+		/// tree from warm arcs (already sorted by flow desc by Python caller);
+		/// unspanned nodes are attached via artificial arcs to preserve feasibility.
+		/// \param u0        Source potentials, length n (raw source index 0..n-1).
+		/// \param v0        Target potentials, length m (raw target index 0..m-1).
+		/// \param arc_ids   CSR arc IDs (flat offsets into _source/_target/_cost) for
+		///                  each warm arc, length n_warm. Pre-computed by Python.
+		/// \param warm_src  Raw source index (0..n-1) for each warm arc.
+		/// \param warm_tgt  Raw target index (0..m-1) for each warm arc.
+		/// \param warm_flow Flow value for each warm arc.
+		/// \param n_warm    Number of warm arcs.
+		/// \param n         Number of source nodes.
+		/// \param m         Number of target nodes.
+		bool warmBasisInit(
+			const double* u0, const double* v0,
+			const int* arc_ids, const int* warm_src, const int* warm_tgt,
+			const double* warm_flow, int n_warm, int n, int m
+		) {
+			if (_node_num == 0) return false;
+
+			// --- Replicate non-tree portions of init() ---
+			_sum_supply = 0;
+			for (int i = 0; i != _node_num; ++i) _sum_supply += _supply[i];
+
+			// ART_COST (same formula as init())
+			Cost ART_COST;
+			if (std::numeric_limits<Cost>::is_exact) {
+				ART_COST = std::numeric_limits<Cost>::max() / 2 + 1;
+			} else {
+				ART_COST = 0;
+				for (ArcsType i = 0; i != _arc_num; ++i)
+					if (_cost[i] > ART_COST) ART_COST = _cost[i];
+				ART_COST = (ART_COST + 1) * _node_num;
+			}
+
+			// Initialize real arc states to LOWER; clear flow.
+			for (ArcsType i = 0; i != _arc_num; ++i) _state[i] = STATE_LOWER;
+#ifdef SPARSE_FLOW
+			_flow = SparseValueVector<Value>();
+#else
+			for (ArcsType i = 0; i != _arc_num; ++i) _flow[i] = 0;
+#endif
+			// Clear artificial arc states and flows. std::vector<signed char> zero-inits
+			// to 0 = STATE_TREE, so without this, every artificial arc looks like a tree
+			// arc to Phase 3's BFS, corrupting parent pointers for already-spanned nodes.
+			// On reused solvers, prior-solve STATE_TREE values are equally hazardous.
+			for (ArcsType e = _arc_num; e < _arc_num + _node_num; ++e) {
+				_state[e] = STATE_LOWER;
+				_flow[e]  = 0;
+			}
+
+			// Root node setup (same as init())
+			_search_arc_num = _arc_num;
+			_all_arc_num    = _arc_num + _node_num;  // EQ supply assumed (balanced OT)
+			_root = _node_num;
+			_parent[_root] = -1;
+			_pred[_root]   = -1;
+			_supply[_root] = -_sum_supply;
+			_pi[_root]     = 0;
+
+			// --- Set warm potentials (using _node_id mapping) ---
+			// _pi[u] = 0 initially for all real nodes (overridden below for warm nodes).
+			// Per init() EQ-supply convention: forward (supply>=0) -> pi=0,
+			// backward (supply<0) -> pi=ART_COST.  We apply this for unspanned nodes
+			// in the artificial-arc loop below; warm-arc nodes keep warm potentials.
+			for (int u = 0; u < _node_num; u++) _pi[u] = 0;
+
+			// Now set warm potentials for all nodes — will be preserved for spanned nodes.
+			for (int i = 0; i < n; i++) _pi[_node_id(i)]     = -u0[i];
+			for (int j = 0; j < m; j++) _pi[_node_id(n + j)] =  v0[j];
+
+			// --- Union-Find over _node_id space [0.._node_num-1] ---
+			// Note: we work in _node_id space throughout (where _pi, _parent, etc. live).
+			int nn = _node_num;
+			std::vector<int> uf(nn + 1);  // [0..nn]: nn = _root
+			std::iota(uf.begin(), uf.end(), 0);
+			auto uf_find = [&](int x) -> int {
+				while (uf[x] != x) { uf[x] = uf[uf[x]]; x = uf[x]; }
+				return x;
+			};
+
+			// per-node arrays (indexed in _node_id space, 0..nn-1; _root = nn)
+			std::vector<int>      par(nn, _root);         // parent in spanning tree
+			std::vector<ArcsType> pred_arc(nn, ArcsType(-1));
+			std::vector<bool>     fwd(nn, true);
+			std::vector<std::vector<int>> children(nn + 1);  // children[u] list
+
+			// --- Phase 1: Collect tree edges via union-find (cycle detection only) ---
+			std::vector<ArcsType> tree_arcs;
+			std::vector<int>      tree_src_nid, tree_tgt_nid;
+
+			for (int k = 0; k < n_warm; k++) {
+				int s = _node_id(warm_src[k]);      // _node_id of source node
+				int t = _node_id(n + warm_tgt[k]);  // _node_id of target node
+				int rs = uf_find(s), rt = uf_find(t);
+				if (rs == rt) continue;             // would form a cycle — skip
+				uf[rs] = rt;
+				// arc_ids[k] is a CSR position; convert to internal storage index
+				// via getArcID (which applies the arc_mixing permutation when enabled).
+				ArcsType internal_id = getArcID(GR::arcFromId(arc_ids[k]));
+				tree_arcs.push_back(internal_id);
+				tree_src_nid.push_back(s);
+				tree_tgt_nid.push_back(t);
+				_state[internal_id] = STATE_TREE;
+				_flow[internal_id]  = static_cast<Value>(warm_flow[k]);
+			}
+
+			// --- Phase 2: Attach unspanned nodes to _root via artificial arcs ---
+			// Artificial arc index e = _arc_num + u_raw — matches init()'s layout.
+			// For unspanned nodes reset _pi to init()'s convention:
+			//   supply >= 0 -> forward arc (u->root), _pi[u] = 0, _cost[e] = 0
+			//   supply <  0 -> backward arc (root->u), _pi[u] = ART_COST, _cost[e] = ART_COST
+			for (int u_raw = 0; u_raw < nn; u_raw++) {
+				int u = _node_id(u_raw);
+				if (uf_find(u) != uf_find(_root)) {
+					uf[uf_find(u)] = _root;
+					ArcsType e = _arc_num + u_raw;
+					if (_supply[u] >= 0) {
+						_pi[u]     = 0;
+						_source[e] = u;
+						_target[e] = _root;
+						_flow[e]   = static_cast<Value>(_supply[u]);
+						_cost[e]   = 0;
+					} else {
+						_pi[u]     = ART_COST;
+						_source[e] = _root;
+						_target[e] = u;
+						_flow[e]   = static_cast<Value>(-_supply[u]);
+						_cost[e]   = ART_COST;
+					}
+					_state[e] = STATE_TREE;
+				}
+			}
+
+			// --- Phase 3: Build tree structure via BFS from _root ---
+			// Build undirected adjacency list from all tree arcs (real + artificial).
+			std::vector<std::vector<std::pair<int, ArcsType>>> adj(nn + 1);
+
+			for (int k = 0; k < (int)tree_arcs.size(); k++) {
+				int s = tree_src_nid[k], t = tree_tgt_nid[k];
+				adj[s].emplace_back(t, tree_arcs[k]);
+				adj[t].emplace_back(s, tree_arcs[k]);
+			}
+			for (int u_raw = 0; u_raw < nn; u_raw++) {
+				ArcsType e = _arc_num + u_raw;
+				if (_state[e] == STATE_TREE) {
+					int u = _node_id(u_raw);
+					adj[u].emplace_back(_root, e);
+					adj[_root].emplace_back(u, e);
+				}
+			}
+
+			// BFS from _root: assign parent pointers uniquely for each node.
+			std::vector<bool> visited(nn + 1, false);
+			std::queue<int> bfs;
+			bfs.push(_root);
+			visited[_root] = true;
+			while (!bfs.empty()) {
+				int u = bfs.front(); bfs.pop();
+				for (auto& [v, arc_id] : adj[u]) {
+					if (!visited[v]) {
+						visited[v]    = true;
+						par[v]        = u;
+						pred_arc[v]   = arc_id;
+						fwd[v]        = (_source[arc_id] == v);
+						children[u].push_back(v);
+						bfs.push(v);
+					}
+				}
+			}
+
+			// --- Build DFS thread list from _root (all indices in _node_id space) ---
+
+			// Pass 1: iterative pre-order DFS -> _thread, _rev_thread
+			{
+				int prev = _root;
+				std::stack<int> stk;
+				for (int i = (int)children[_root].size() - 1; i >= 0; --i)
+					stk.push(children[_root][i]);
+				while (!stk.empty()) {
+					int u = stk.top(); stk.pop();
+					_thread[prev]    = u;
+					_rev_thread[u]   = prev;
+					prev = u;
+					for (int i = (int)children[u].size() - 1; i >= 0; --i)
+						stk.push(children[u][i]);
+				}
+				_thread[prev]      = _root;
+				_rev_thread[_root] = prev;
+				if (children[_root].empty()) {
+					_thread[_root]     = _root;
+					_rev_thread[_root] = _root;
+				}
+			}
+
+			// Pass 2: iterative post-order DFS -> _succ_num, _last_succ
+			{
+				std::stack<std::pair<int,bool>> stk;
+				stk.push({_root, false});
+				while (!stk.empty()) {
+					auto [u, done] = stk.top(); stk.pop();
+					if (done) {
+						if (children[u].empty()) {
+							_succ_num[u]  = 1;
+							_last_succ[u] = u;
+						} else {
+							_succ_num[u]  = 1;
+							_last_succ[u] = _last_succ[children[u].back()];
+							for (int c : children[u]) _succ_num[u] += _succ_num[c];
+						}
+					} else {
+						stk.push({u, true});
+						for (int i = (int)children[u].size() - 1; i >= 0; --i)
+							stk.push({children[u][i], false});
+					}
+				}
+			}
+
+			// Set _parent, _pred, _forward for all real nodes (in _node_id space)
+			for (int u = 0; u < nn; u++) {
+				_parent[u]  = par[u];
+				_pred[u]    = pred_arc[u];
+				_forward[u] = fwd[u];
+			}
+
+			return true;
+		}
+
+		/// \brief Run with full-basis warm start (Mode B).
+		ProblemType runWarmBasis(
+			const double* u0, const double* v0,
+			const int* arc_ids, const int* warm_src, const int* warm_tgt,
+			const double* warm_flow, int n_warm, int n, int m
+		) {
+			if (!warmBasisInit(u0, v0, arc_ids, warm_src, warm_tgt, warm_flow, n_warm, n, m))
+				return INFEASIBLE;
 			return start();
 		}
 

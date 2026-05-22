@@ -1,0 +1,299 @@
+"""Warm-start refinement for sparse optimal transport.
+
+Refines a warm-start OT solution to global optimality on a larger cost
+support, without paying for a cold solve from scratch.
+
+Algorithm (single-pass column generation on Bonneel's network simplex)
+======================================================================
+
+Given dual potentials ``(u, v)`` from a previous ``emd`` call on a restricted
+support ``S_warm ⊆ E_full``, dual feasibility on ``S_warm`` means
+``u[i] + v[j] ≤ M[i, j]`` for all ``(i, j) ∈ S_warm``. To verify global
+optimality on ``E_full``, compute the reduced cost
+``rc[i, j] = M[i, j] − u[i] − v[j]`` over every edge of ``M_full`` (one
+vectorized pass over the CSR ``nnz``):
+
+* If ``min(rc) ≥ −tol``: ``(u, v)`` is dual-feasible on ``E_full``, and
+  ``G_warm`` is primal-feasible for ``(a, b)`` with support in
+  ``S_warm ⊆ {(i, j) : rc[i, j] ≈ 0}``. By complementary slackness ``G_warm``
+  extended with zeros over ``E_full \\ S_warm`` is a global optimum on
+  ``(a, b, M_full)``. Return immediately — no re-solve.
+
+* Otherwise: violating edges define entering variables for the simplex on
+  ``M_full``. We re-solve Bonneel-sparse on the full ``M_full`` support
+  (cold in v1; warm-started from ``(u, v)`` once the C++ binding supports
+  it — see the design spec).
+
+Correctness follows from LP duality: a primal feasible flow whose support
+consists of edges with ``rc = 0`` and whose duals are ``(u, v)`` is optimal.
+
+Regime of optimality
+====================
+
+This path beats a cold solve when:
+
+* ``M_full`` is sparse (CSR) with moderate density — dense ``M_full`` is
+  rejected with ``NotImplementedError``.
+* ``S_warm`` covers a meaningful fraction of the optimal plan's support on
+  ``M_full``. In the limit ``S_warm = E_full`` the refinement degenerates to
+  a single verifier pass with no solve; in the limit ``S_warm`` is unrelated
+  to the optimum, the cold re-solve costs roughly the same as cold and the
+  verifier is pure overhead.
+
+See ``benchmarks/bench_refine.py`` for measured numbers and
+``docs/refinement.md`` for a worked example.
+
+References
+==========
+
+* Schmitzer, B. "A sparse multiscale algorithm for dense optimal
+  transport." *Journal of Mathematical Imaging and Vision*, 56(2):238–259,
+  2016. https://doi.org/10.1007/s10851-016-0653-9
+* Rauch, J. and Zanotti, L. "An improved implementation of Schmitzer's
+  sparse multiscale algorithm for discrete optimal transport on grids."
+  arXiv:2502.20905, 2025. https://arxiv.org/abs/2502.20905.
+  Reference implementation: https://github.com/johannesrauch/GridOT
+  (Boost license).
+* Bonneel, N. et al. "Displacement interpolation using Lagrangian mass
+  transport." *ACM TOG*, 30(6), 2011.
+  https://github.com/nbonneel/network_simplex
+* Bertsimas, D. and Tsitsiklis, J. *Introduction to Linear Optimization*,
+  Athena Scientific, 1997. §4 — column generation, dual feasibility test.
+"""
+from __future__ import annotations
+
+import numpy as np
+import scipy.sparse
+
+import warnings
+
+from sparse_ot.feasibility import check_feasibility
+from sparse_ot.sparse_utils import to_csr, _MARGINAL_TOL
+
+
+def _parse_warm_start(warm_start, n, m):
+    """Normalize ``warm_start`` to ``(G_csr, u, v)``.
+
+    Accepted forms:
+      * ``(G, info)`` where ``info`` is a dict with keys ``u`` and ``v``.
+      * ``(G, u, v)`` bare 3-tuple.
+
+    ``G`` may be a ``scipy.sparse`` matrix (any format) or a 2-D ``ndarray``.
+    Both are normalized to CSR.
+    """
+    if not isinstance(warm_start, tuple) or len(warm_start) not in (2, 3):
+        raise TypeError(
+            "warm_start must be a 2-tuple (G, info) or a 3-tuple (G, u, v); "
+            f"got {type(warm_start).__name__} of length "
+            f"{len(warm_start) if hasattr(warm_start, '__len__') else '?'}"
+        )
+
+    if len(warm_start) == 2:
+        G, info = warm_start
+        if not isinstance(info, dict):
+            raise TypeError(
+                "warm_start[1] must be the info dict from a prior "
+                f"emd(..., log=True) call; got {type(info).__name__}"
+            )
+        if "u" not in info or "v" not in info:
+            raise TypeError(
+                "warm_start info dict must contain keys 'u' and 'v'; "
+                f"got keys {sorted(info.keys())!r}"
+            )
+        u = info["u"]
+        v = info["v"]
+    else:
+        G, u, v = warm_start
+
+    if scipy.sparse.issparse(G):
+        G_csr = G.tocsr().astype(np.float64)
+    elif isinstance(G, np.ndarray) and G.ndim == 2:
+        G_csr = scipy.sparse.csr_matrix(G.astype(np.float64, copy=False))
+    else:
+        raise TypeError(
+            "warm_start G must be a CSR matrix or a 2-D ndarray; "
+            f"got {type(G).__name__}"
+        )
+
+    if G_csr.shape != (n, m):
+        raise ValueError(
+            f"warm_start G has shape {G_csr.shape}; "
+            f"expected ({n}, {m}) to match M_full"
+        )
+
+    u = np.asarray(u, dtype=np.float64)
+    v = np.asarray(v, dtype=np.float64)
+    if u.ndim != 1:
+        raise ValueError(
+            f"warm_start u must be 1-D; got shape {u.shape}"
+        )
+    if v.ndim != 1:
+        raise ValueError(
+            f"warm_start v must be 1-D; got shape {v.shape}"
+        )
+    if len(u) != n:
+        raise ValueError(
+            f"warm_start len(u)={len(u)}; expected {n} to match M_full"
+        )
+    if len(v) != m:
+        raise ValueError(
+            f"warm_start len(v)={len(v)}; expected {m} to match M_full"
+        )
+    if not np.all(np.isfinite(u)) or not np.all(np.isfinite(v)):
+        raise ValueError("warm_start u, v must be finite (no NaN or inf)")
+
+    return G_csr, u, v
+
+
+def _compute_reduced_costs(M_csr, u, v, tol=0.0):
+    """Reduced cost ``M[i, j] - u[i] - v[j]`` over every nnz edge of M.
+
+    Returns ``(rc, min_rc, n_violating)`` where ``n_violating`` counts edges
+    with ``rc < -tol``.
+    """
+    indptr = M_csr.indptr
+    indices = M_csr.indices
+    data = M_csr.data
+    n = M_csr.shape[0]
+    row_idx = np.repeat(np.arange(n, dtype=np.intp), np.diff(indptr))
+    rc = data - u[row_idx] - v[indices]
+    if rc.size == 0:
+        return rc, 0.0, 0
+    min_rc = float(rc.min())
+    n_viol = int(np.sum(rc < -tol))
+    return rc, min_rc, n_viol
+
+
+def _default_tol(M_csr):
+    """Scale-relative tolerance for the dual-feasibility check."""
+    if M_csr.nnz == 0:
+        return 1e-9
+    return 1e-9 * max(1.0, float(np.abs(M_csr.data).max()))
+
+
+def _drop_explicit_zeros(G_warm_csr):
+    """Return a copy of G_warm with explicit zero entries removed.
+
+    Called on the already-optimal branch, where G_warm is already known to
+    have its support contained in M_csr's (by ``_verify_support_subset``).
+    The returned CSR keeps G_warm's index layout, not M_csr's, but the math
+    that follows (cost via ``G.multiply(M_csr).sum()``, marginal sums) is
+    layout-independent.
+    """
+    G = G_warm_csr.copy()
+    G.eliminate_zeros()
+    return G
+
+
+def _check_marginals_csr(G, a, b):
+    row_sum = np.asarray(G.sum(axis=1)).ravel()
+    col_sum = np.asarray(G.sum(axis=0)).ravel()
+    err_a = float(np.max(np.abs(row_sum - a)))
+    err_b = float(np.max(np.abs(col_sum - b)))
+    return err_a, err_b
+
+
+def _verify_support_subset(G_warm_csr, M_csr):
+    """Raise if G_warm has a nonzero outside M_csr's stored support.
+
+    Vectorized: encodes (row, col) as int64 keys row*m + col, sorts M's
+    keys once, then np.searchsorted to check each G nonzero. O(nnz log nnz)
+    in pure NumPy.
+    """
+    G_coo = G_warm_csr.tocoo()
+    nz = G_coo.data != 0.0
+    if not np.any(nz):
+        return
+    n, m = M_csr.shape
+    g_keys = (G_coo.row[nz].astype(np.int64) * m
+              + G_coo.col[nz].astype(np.int64))
+
+    M_coo = M_csr.tocoo()
+    m_keys = (M_coo.row.astype(np.int64) * m
+              + M_coo.col.astype(np.int64))
+    m_keys.sort()
+
+    idx = np.searchsorted(m_keys, g_keys)
+    # idx == len means key > all; clip to safe index then check equality
+    in_range = idx < m_keys.size
+    found = np.zeros_like(g_keys, dtype=bool)
+    found[in_range] = m_keys[idx[in_range]] == g_keys[in_range]
+
+    if not np.all(found):
+        bad = np.where(~found)[0][0]
+        r = int(G_coo.row[nz][bad])
+        c = int(G_coo.col[nz][bad])
+        raise ValueError(
+            f"warm_start G has a nonzero at ({r}, {c}) which is not in "
+            f"M_full's support; warm_start is incompatible with M_full"
+        )
+
+
+def refine_from_warm_start(a, b, M_csr, warm_start, *,
+                           numItermax, log, center_dual, reduced_cost_tol):
+    n, m = M_csr.shape
+    if (len(a), len(b)) != (n, m):
+        raise ValueError(
+            f"M must have shape ({len(a)}, {len(b)}), got ({n}, {m})"
+        )
+
+    G_warm, u, v = _parse_warm_start(warm_start, n, m)
+    _verify_support_subset(G_warm, M_csr)
+
+    # Feasibility precondition on M_full (same as cold path).
+    row_ptr, col_idx, costs, _n, _m, k = to_csr(M_csr, 0.0)
+    check_feasibility(a, b, row_ptr, col_idx)
+
+    tol = _default_tol(M_csr) if reduced_cost_tol is None else float(reduced_cost_tol)
+
+    rc, min_rc, n_viol = _compute_reduced_costs(M_csr, u, v, tol=tol)
+
+    if min_rc >= -tol:
+        G = _drop_explicit_zeros(G_warm)
+        refine_info = {
+            "warm_start_optimal": True,
+            "num_passes": 0,
+            "initial_min_reduced_cost": min_rc,
+            "edges_added": 0,
+        }
+    else:
+        from sparse_ot.sparse_utils import bonneel_sparse_solve_warm
+        G, u, v, warm_basis_used = bonneel_sparse_solve_warm(
+            a, b, row_ptr, col_idx, costs, n, m, G_warm, u, v, numItermax
+        )
+        edges_added = int(G.nnz - G_warm.nnz)
+        refine_info = {
+            "warm_start_optimal": False,
+            "num_passes": 1,
+            "initial_min_reduced_cost": min_rc,
+            "edges_added": max(edges_added, 0),
+            "warm_basis_used": warm_basis_used,
+        }
+
+    if center_dual:
+        shift = float(u.mean())
+        u = u - shift
+        v = v + shift
+
+    err_a, err_b = _check_marginals_csr(G, a, b)
+    converged = max(err_a, err_b) <= _MARGINAL_TOL
+    warn_msg = None
+    if not converged:
+        warn_msg = (
+            f"marginals not satisfied after warm-start refinement: "
+            f"|G.sum(1)-a|={err_a:.2e}, |G.sum(0)-b|={err_b:.2e} "
+            f"(tol={_MARGINAL_TOL:.0e})."
+        )
+        warnings.warn(warn_msg, RuntimeWarning, stacklevel=3)
+
+    if log:
+        cost = float(G.multiply(M_csr).sum())
+        return G, {
+            "cost": cost,
+            "u": u,
+            "v": v,
+            "warning": warn_msg,
+            "result_code": 1 if converged else 0,
+            "refine": refine_info,
+        }
+    return G

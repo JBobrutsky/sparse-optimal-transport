@@ -4,22 +4,9 @@ import numpy as np
 import scipy.sparse
 
 from sparse_ot._ext import _bonneel
-from sparse_ot.sparse_utils import to_csr
+from sparse_ot.sparse_utils import to_csr, _default_num_iter, bonneel_sparse_solve, _MARGINAL_TOL
 from sparse_ot.feasibility import check_feasibility
 
-# Convergence tolerance for the post-solve marginal check. Bonneel's network
-# simplex terminates at numItermax without raising; if it stops early the
-# returned flows can violate row/col marginals by orders of magnitude more
-# than machine epsilon. Anything above this is treated as non-convergence.
-_MARGINAL_TOL = 1e-6
-
-
-def _default_num_iter(n, m, k):
-    # Network simplex empirically converges in O((n+m) * sqrt(k)) pivots on
-    # well-behaved OT problems. Pick a generous linear multiple of the problem
-    # size so neither small nor large instances truncate. Capped to keep
-    # pathological inputs from running unboundedly.
-    return min(50_000_000, max(100_000, 100 * (n + m + k)))
 
 
 def _check_marginals(G, a, b):
@@ -34,7 +21,8 @@ def _check_marginals(G, a, b):
     return err_a, err_b
 
 
-def emd(a, b, M, numItermax=None, log=False, center_dual=True):
+def emd(a, b, M, numItermax=None, log=False, center_dual=True,
+        warm_start=None, reduced_cost_tol=None):
     """Transport plan between distributions a and b with cost matrix M.
 
     POT-compatible: drop-in for ``ot.emd``. Dense numpy ``M`` returns a dense
@@ -50,11 +38,34 @@ def emd(a, b, M, numItermax=None, log=False, center_dual=True):
                   ``cost, u, v, warning, result_code``.
     center_dual : bool — if True, shift u/v so u has zero mean while
                   preserving u[i] + v[j].
+    warm_start : tuple or None — if provided, refine to optimum on M from the
+                  given prior solve. Form: ``(G_warm, info)`` where info is the
+                  log dict from a previous ``emd(..., log=True)`` call, or the
+                  bare 3-tuple ``(G_warm, u, v)``. ``G_warm`` may be CSR or a
+                  2-D ndarray; both forms accepted. Only supported when M is
+                  CSR. See ``docs/refinement.md``.
+    reduced_cost_tol : float or None — tolerance for the dual-feasibility check.
+                  None picks ``1e-9 * max(1, |M|_inf)``.
     """
     a = np.asarray(a, dtype=np.float64).ravel()
     b = np.asarray(b, dtype=np.float64).ravel()
     a = a / a.sum()
     b = b / b.sum()
+
+    if warm_start is not None:
+        if not scipy.sparse.issparse(M):
+            raise NotImplementedError(
+                "warm_start is only supported for sparse (CSR) M in v1; "
+                "for dense M_full the cold path is already optimal."
+            )
+        # Lazy import to avoid a refine.py <-> emd.py cycle.
+        from sparse_ot.refine import refine_from_warm_start
+        return refine_from_warm_start(
+            a, b, M, warm_start,
+            numItermax=numItermax, log=log,
+            center_dual=center_dual,
+            reduced_cost_tol=reduced_cost_tol,
+        )
 
     if scipy.sparse.issparse(M):
         row_ptr, col_idx, costs, n, m, k = to_csr(M, 0.0)
@@ -63,12 +74,7 @@ def emd(a, b, M, numItermax=None, log=False, center_dual=True):
                 f"M must have shape ({len(a)}, {len(b)}), got ({n}, {m})"
             )
         check_feasibility(a, b, row_ptr, col_idx)
-        if numItermax is None:
-            numItermax = _default_num_iter(n, m, k)
-        rows, cols, vals, u, v = _bonneel.solve_sparse(
-            a, b, row_ptr, col_idx, costs, numItermax
-        )
-        G = scipy.sparse.csr_matrix((vals, (rows, cols)), shape=(n, m))
+        G, u, v = bonneel_sparse_solve(a, b, row_ptr, col_idx, costs, n, m, numItermax)
         M_for_cost = M
     else:
         M_dense = np.ascontiguousarray(M, dtype=np.float64)

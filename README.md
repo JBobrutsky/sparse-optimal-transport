@@ -251,6 +251,43 @@ First-time setup (one-time, requires owner action on pypi.org):
   environment = `testpypi`. Then trigger `Publish to PyPI` via the
   Actions UI (workflow_dispatch) with target = `testpypi`.
 
+## Warm-starting from a previous solve
+
+When you have a cheap solve on a restricted support — for instance, a
+small-k nearest-neighbor approximation — you can refine it to a globally
+optimal solution on a richer support without paying for a cold solve.
+
+```python
+import numpy as np, scipy.sparse, sparse_ot as sot
+
+# Phase 1 — cheap cold solve on a coarse support (k = 8 NN).
+M_coarse = build_knn_cost(points, k=8)
+G_coarse, info = sot.emd(a, b, M_coarse, log=True)
+
+# Phase 2 — refine to optimum on a denser support (k = 64). The full
+# (G, info) tuple is the warm-start payload: G_coarse lets us return
+# immediately when the warm-start is already optimal on M_full; info
+# supplies (u, v).
+M_full = build_knn_cost(points, k=64)
+G_opt, info_opt = sot.emd(a, b, M_full,
+                          warm_start=(G_coarse, info), log=True)
+
+print(info_opt["refine"])
+# {'warm_start_optimal': False, 'num_passes': 1,
+#  'initial_min_reduced_cost': -0.014, 'edges_added': 488}
+
+# Chain: refine again on an even denser support.
+M_finer = build_knn_cost(points, k=256)
+G_final, info_final = sot.emd(a, b, M_finer,
+                              warm_start=(G_opt, info_opt), log=True)
+```
+
+The refinement path is sparse-only (CSR `M_full` required) and exact: the
+returned flow is provably optimal on `M_full`. `G_warm` may be passed as
+either CSR or a dense ndarray. See `docs/refinement.md` for the regime
+where this beats a cold solve, with measured speedups on the `knn-grid`
+benchmark.
+
 ## License
 
 [MIT](LICENSE).

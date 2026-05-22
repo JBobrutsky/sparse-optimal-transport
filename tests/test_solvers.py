@@ -42,6 +42,32 @@ def test_sparse_ot_csr_correct():
     assert abs(r.cost - 1.0) < 1e-9
 
 
+def test_solve_sparse_ot_densifies_near_dense_csr():
+    """solve_sparse_ot should convert CSR with density > 0.5 to ndarray before
+    calling emd, matching the advice emd() now emits."""
+    import warnings
+    import numpy as np
+    import scipy.sparse
+    from benchmarks.solvers import solve_sparse_ot
+
+    rng = np.random.default_rng(0)
+    n = 20
+    mask = rng.random((n, n)) < 0.8
+    M_dense = rng.uniform(0.0, 1.0, size=(n, n))
+    M_dense[~mask] = 0.0
+    M_csr = scipy.sparse.csr_matrix(M_dense)
+    a = np.full(n, 1.0 / n)
+    b = np.full(n, 1.0 / n)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        result = solve_sparse_ot(a, b, M_csr)
+
+    assert result.wall_s > 0
+    assert result.marginal_err_a < 1e-9
+    assert result.marginal_err_b < 1e-9
+
+
 def test_pot_agrees_with_sparse_ot():
     from benchmarks.solvers import solve_sparse_ot, solve_pot
     a, b, M = _two_by_two()

@@ -52,23 +52,36 @@ def test_warm_start_with_dense_M_raises():
         sparse_ot.emd(a, b, M_dense, warm_start=fake_warm)
 
 
-def test_warm_start_with_sparse_M_non_optimal_uses_cold_resolve():
-    """Sparse M + non-optimal warm_start goes through the non-optimal
-    branch: cold re-solve produces the optimum, refine info reports
-    warm_start_optimal=False with num_passes=1."""
-    a, b, M = _band_problem(10, 3)
+def test_warm_start_with_sparse_M_non_optimal_produces_correct_result():
+    """Sparse M + non-optimal warm_start goes through the non-optimal branch
+    and produces the correct optimum. warm_start_optimal=False, num_passes=1."""
+    import warnings
     n = 10
-    bad_warm = (
-        scipy.sparse.csr_matrix(M.shape),
-        np.zeros(n),
-        np.full(n, M.data.max() + 1.0),
+    a, b, M = _band_problem(n, 5, seed=0)
+    G_cold, info_cold = sparse_ot.emd(a, b, M, log=True)
+    cold_cost = info_cold["cost"]
+
+    # Build an explicitly sub-optimal warm start:
+    # 1-arc G (highly degenerate → Mode C) with u[0]=0.5 to force min_rc < 0.
+    # M[0,0]=0 so rc(0,0) = 0 - 0.5 - 0 = -0.5 < -tol → non-optimal branch fires.
+    coo = G_cold.tocoo()
+    idx = int(np.argmax(coo.data))
+    G_deg = scipy.sparse.csr_matrix(
+        ([coo.data[idx]], ([coo.row[idx]], [coo.col[idx]])), shape=M.shape
     )
-    G, info = sparse_ot.emd(a, b, M, warm_start=bad_warm, log=True)
-    assert info["refine"]["warm_start_optimal"] is False
-    assert info["refine"]["num_passes"] == 1
-    # And it produced a real flow (marginals roughly satisfied).
-    np.testing.assert_allclose(np.asarray(G.sum(axis=1)).ravel(), a, atol=1e-6)
-    np.testing.assert_allclose(np.asarray(G.sum(axis=0)).ravel(), b, atol=1e-6)
+    u_bad = np.zeros(n); u_bad[0] = 0.5
+    v_bad = np.zeros(n)
+
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        G_warm, info_warm = sparse_ot.emd(
+            a, b, M, warm_start=(G_deg, u_bad, v_bad), log=True
+        )
+    assert info_warm["refine"]["warm_start_optimal"] is False
+    assert info_warm["refine"]["num_passes"] == 1
+    assert abs(info_warm["cost"] - cold_cost) < 1e-9
+    np.testing.assert_allclose(np.asarray(G_warm.sum(axis=1)).ravel(), a, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(G_warm.sum(axis=0)).ravel(), b, atol=1e-6)
 
 
 from sparse_ot.refine import _parse_warm_start

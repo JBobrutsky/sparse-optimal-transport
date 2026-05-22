@@ -95,14 +95,10 @@ def bonneel_sparse_solve_warm(a, b, row_ptr, col_idx, costs, n, m,
             RuntimeWarning, stacklevel=4,
         )
         warm_basis_used = False
-        # Mode C: potential-only warm start.  The C++ solve_sparse_warm_potentials
-        # entry point accepts (u0, v0) to seed the dual, but the current network
-        # simplex initialisation (Big-M artificial basis) is incompatible with a
-        # pre-set dual when u0/v0 are already near-optimal — warm potentials make
-        # all real-arc reduced costs non-negative, so the artificial arcs are
-        # never pivoted out.  Until a crash-procedure or two-phase alternative is
-        # implemented in C++ (tracked as a follow-up), Mode C falls back to the
-        # standard cold solve which is guaranteed correct.
+        # Fall back to cold solve: injecting _pi after init() breaks the
+        # artificial-star dual consistency (tree-arc rc ≠ 0), causing wrong
+        # pivots. Mode B avoids this because warm tree arcs satisfy
+        # complementary slackness with the prior-solve potentials.
         rows, cols, vals, u, v = _bonneel.solve_sparse(
             a, b, row_ptr, col_idx, costs, numItermax
         )

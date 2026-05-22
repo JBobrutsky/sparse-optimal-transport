@@ -15,7 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 torch = ["torch>=2.0"]
-dev = ["pytest>=7.0", "pytest-timeout>=2.0", "pot>=0.9", "pybind11>=2.12", "matplotlib>=3.7"]
+dev = ["pytest>=7.0", "pytest-timeout>=2.0", "pot>=0.9", "pybind11>=2.12", "matplotlib>=3.7", "ortools>=9.0", "scipy>=1.10"]
 
 [tool.scikit-build]
 wheel.packages = ["src/sparse_ot"]

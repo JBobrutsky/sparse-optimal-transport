@@ -76,7 +76,7 @@ def emd(a, b, M, numItermax=None, log=False, center_dual=True,
         density = k / (n * m) if n * m > 0 else 0.0
         if density > 0.5:
             warnings.warn(
-                f"M is CSR but {density:.0%} dense ({k} nnz of {n*m} entries); "
+                f"M is CSR but {density:.1%} dense ({k} nnz of {n*m} entries); "
                 f"the sparse path pays CSR indirection overhead with no "
                 f"sparsity benefit. Pass M.toarray() to use the dense "
                 f"Bonneel path for faster solves.",

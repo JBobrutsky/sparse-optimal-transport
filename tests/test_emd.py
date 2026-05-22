@@ -87,10 +87,19 @@ def test_emd_scipy_sparse_input():
     """scipy CSR cost matrix is accepted and returns scipy CSR transport plan."""
     rng = np.random.default_rng(99)
     n = 8
-    a = rng.dirichlet(np.ones(n))
-    b = rng.dirichlet(np.ones(n))
+    # Uniform marginals so the diagonal (identity) matching is trivially
+    # feasible on a sparse support; we then enrich with a random band to
+    # keep the problem non-degenerate while staying below 50% density.
+    a = np.full(n, 1.0 / n)
+    b = np.full(n, 1.0 / n)
     M_dense = rng.uniform(0, 1, (n, n))
+    idx = np.arange(n)
+    mask = np.zeros((n, n), dtype=bool)
+    for off in (-1, 0, 1):
+        mask[idx, (idx + off) % n] = True
+    M_dense = np.where(mask, M_dense, 0.0)
     M_sp = scipy.sparse.csr_matrix(M_dense)
+    assert M_sp.nnz / (n * n) <= 0.5
     G = sparse_ot.emd(a, b, M_sp)
     assert scipy.sparse.issparse(G)
     np.testing.assert_allclose(
@@ -105,22 +114,37 @@ def test_emd2_scipy_sparse_input():
     """emd2 with scipy CSR input returns same cost as POT."""
     rng = np.random.default_rng(55)
     n = 8
-    a = rng.dirichlet(np.ones(n))
-    b = rng.dirichlet(np.ones(n))
+    # Uniform marginals + circulant band → feasible on a genuinely sparse
+    # support (identity matching always exists in-support).
+    a = np.full(n, 1.0 / n)
+    b = np.full(n, 1.0 / n)
     M_dense = rng.uniform(0, 1, (n, n))
+    idx = np.arange(n)
+    mask = np.zeros((n, n), dtype=bool)
+    for off in (-1, 0, 1):
+        mask[idx, (idx + off) % n] = True
+    M_dense = np.where(mask, M_dense, 0.0)
     M_sp = scipy.sparse.csr_matrix(M_dense)
+    assert M_sp.nnz / (n * n) <= 0.5
+    # Build a POT-compatible dense matrix where forbidden edges are very
+    # expensive (so POT avoids them, matching the sparse support semantics).
+    M_pot = np.where(mask, M_dense, 1e6)
     cost_sot = sparse_ot.emd2(a, b, M_sp)
-    cost_pot = ot.emd2(a, b, M_dense)
+    cost_pot = ot.emd2(a, b, M_pot)
     assert abs(cost_sot - cost_pot) / abs(cost_pot) < 1e-6
 
 
 def test_emd_raises_on_infeasible_sparse_support():
     # Singleton components: source 0 has 0.5 mass, but only edge (0,0) exists
     # and target 0 has only 0.1 mass demand. Imbalanced component → infeasible.
-    rows = [0, 1, 1, 2, 2]
-    cols = [0, 1, 2, 1, 2]
-    data = [1.0] * 5
+    # Keep the support sparse (<= 50% density) by dropping (2,2): row 2 still
+    # connects to col 1, and the (0,0)-only constraint for source 0 is what
+    # forces infeasibility regardless.
+    rows = [0, 1, 1, 2]
+    cols = [0, 1, 2, 1]
+    data = [1.0] * 4
     M = scipy.sparse.csr_matrix((data, (rows, cols)), shape=(3, 3))
+    assert M.nnz / 9 <= 0.5
     a = np.array([0.5, 0.25, 0.25])
     b = np.array([0.1, 0.45, 0.45])
     with pytest.raises(InfeasibleProblemError):

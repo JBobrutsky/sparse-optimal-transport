@@ -881,6 +881,14 @@ namespace lemon {
 #else
 			for (ArcsType i = 0; i != _arc_num; ++i) _flow[i] = 0;
 #endif
+			// Clear artificial arc states and flows. std::vector<signed char> zero-inits
+			// to 0 = STATE_TREE, so without this, every artificial arc looks like a tree
+			// arc to Phase 3's BFS, corrupting parent pointers for already-spanned nodes.
+			// On reused solvers, prior-solve STATE_TREE values are equally hazardous.
+			for (ArcsType e = _arc_num; e < _arc_num + _node_num; ++e) {
+				_state[e] = STATE_LOWER;
+				_flow[e]  = 0;
+			}
 
 			// Root node setup (same as init())
 			_search_arc_num = _arc_num;

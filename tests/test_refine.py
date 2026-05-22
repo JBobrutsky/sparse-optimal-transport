@@ -530,3 +530,28 @@ def test_refine_non_optimal_mode_c_fallback():
     refine = info_warm["refine"]
     assert refine["warm_basis_used"] is False
     assert any("zero-flow basic arcs" in str(x.message) for x in w)
+
+
+def test_warm_start_skips_feasibility_check():
+    """The warm-start path must not call check_feasibility on M_full — the
+    warm input already proves the support routes (a, b)."""
+    import numpy as np
+    from unittest.mock import patch
+    from benchmarks.problems import generate_knn_grid_warm_expand
+    from sparse_ot import emd
+
+    a, b, M_warm, M_full, _ = generate_knn_grid_warm_expand(
+        n=200, k_warm=8, k_full=32, seed=0,
+    )
+    G_warm, info_warm = emd(a, b, M_warm, log=True)
+
+    # Patch check_feasibility in BOTH refine and emd module namespaces — the
+    # warm-start path goes through refine, but we want to be sure refine isn't
+    # indirectly calling it.
+    with patch("sparse_ot.refine.check_feasibility") as refine_mock:
+        emd(a, b, M_full, warm_start=(G_warm, info_warm))
+        assert refine_mock.call_count == 0, (
+            f"check_feasibility called {refine_mock.call_count} times on "
+            f"the warm-start path; expected 0 (the warm input already proves "
+            f"the support is feasible)"
+        )

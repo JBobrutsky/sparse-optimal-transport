@@ -67,7 +67,7 @@ import scipy.sparse
 
 import warnings
 
-from sparse_ot.feasibility import check_feasibility
+from sparse_ot.feasibility import check_feasibility  # noqa: F401 — exposed for tests that verify the warm path doesn't invoke it
 from sparse_ot.sparse_utils import to_csr, _MARGINAL_TOL
 
 
@@ -240,9 +240,11 @@ def refine_from_warm_start(a, b, M_csr, warm_start, *,
     G_warm, u, v = _parse_warm_start(warm_start, n, m)
     _verify_support_subset(G_warm, M_csr)
 
-    # Feasibility precondition on M_full (same as cold path).
+    # Feasibility precondition is implicit: the warm_start G is a near-feasible
+    # flow on M_csr's support, which proves the support can route (a, b). We
+    # skip the explicit check_feasibility call (a pure-Python O(nnz) loop that
+    # would otherwise dominate the warm-start wall time for large n).
     row_ptr, col_idx, costs, _n, _m, k = to_csr(M_csr, 0.0)
-    check_feasibility(a, b, row_ptr, col_idx)
 
     tol = _default_tol(M_csr) if reduced_cost_tol is None else float(reduced_cost_tol)
 

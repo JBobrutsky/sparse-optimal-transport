@@ -1,6 +1,5 @@
 """Tests for warm-started network simplex entry points."""
 import numpy as np
-import pytest
 import scipy.sparse
 
 from sparse_ot import emd

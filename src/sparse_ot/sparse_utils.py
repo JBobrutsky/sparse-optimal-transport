@@ -113,16 +113,17 @@ def bonneel_sparse_solve_warm(a, b, row_ptr, col_idx, costs, n, m,
 
         # Compute CSR arc IDs for each warm arc via flat-key searchsorted.
         # row_ptr / col_idx are already sorted within each row (scipy guarantee).
-        n_rows = n
-        n_cols = m
         src_per_arc = np.repeat(
-            np.arange(n_rows, dtype=np.int64), np.diff(row_ptr.astype(np.int64))
+            np.arange(n, dtype=np.int64), np.diff(row_ptr.astype(np.int64))
         )
-        M_keys = src_per_arc * n_cols + col_idx.astype(np.int64)
-        warm_keys = warm_rows.astype(np.int64) * n_cols + warm_cols.astype(np.int64)
+        M_keys = src_per_arc * m + col_idx.astype(np.int64)
+        warm_keys = warm_rows.astype(np.int64) * m + warm_cols.astype(np.int64)
         arc_ids = np.searchsorted(M_keys, warm_keys).astype(np.int32)
 
         warm_basis_used = True
+        # solve_sparse_warm_basis is registered in Task 4; AttributeError here
+        # means Mode B C++ binding is not yet built — run `pip install -e .` after
+        # completing Task 3–4.
         rows, cols, vals, u, v = _bonneel.solve_sparse_warm_basis(
             a, b, row_ptr, col_idx, costs,
             np.asarray(u0, dtype=np.float64),

@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 import scipy.sparse
@@ -328,12 +330,16 @@ def test_warm_start_suboptimal_duals_triggers_fallback():
     u_bad = np.zeros(20)
     # large offset guarantees rc = M - u - v < 0 on every stored edge
     v_bad = np.full(20, M.data.max() + 10.0)
-    # Solve with the bad warm-start.
-    G, info = sparse_ot.emd(
-        a, b, M,
-        warm_start=(G_bad, u_bad, v_bad),
-        log=True,
-    )
+    # Solve with the bad warm-start. The empty G_bad has 100% zero-flow basic
+    # arcs, which intentionally triggers the degenerate-basis RuntimeWarning;
+    # that warning is the expected path here (forces potential-only fallback).
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        G, info = sparse_ot.emd(
+            a, b, M,
+            warm_start=(G_bad, u_bad, v_bad),
+            log=True,
+        )
     assert info["refine"]["warm_start_optimal"] is False
     assert info["refine"]["num_passes"] == 1
     # The initial reduced costs must have been negative (that is what forced the re-solve).

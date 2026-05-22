@@ -1,4 +1,6 @@
 """Tests for warm-started network simplex entry points."""
+import warnings
+
 import numpy as np
 import scipy.sparse
 
@@ -145,15 +147,20 @@ def test_warm_basis_sign_convention():
     M = scipy.sparse.csr_matrix(np.array([[1., 2.], [3., 1.]]))
     a = np.array([0.5, 0.5])
     b = np.array([0.5, 0.5])
-    G_cold, info = emd(a, b, M, log=True, center_dual=False)
-    cold_cost = info["cost"]
-    assert abs(cold_cost - 1.0) < 1e-9
+    # 2x2 support is fully dense by design (analytic check on a minimal
+    # problem); both the CSR-density warning from emd() and the
+    # degenerate-basis warning from bonneel_sparse_solve_warm are expected.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        G_cold, info = emd(a, b, M, log=True, center_dual=False)
+        cold_cost = info["cost"]
+        assert abs(cold_cost - 1.0) < 1e-9
 
-    row_ptr, col_idx, costs, n, m, _ = to_csr(M, 0.0)
-    G_w, u, v, basis_used = bonneel_sparse_solve_warm(
-        a, b, row_ptr, col_idx, costs, n, m,
-        G_cold, info["u"], info["v"],
-    )
+        row_ptr, col_idx, costs, n, m, _ = to_csr(M, 0.0)
+        G_w, u, v, basis_used = bonneel_sparse_solve_warm(
+            a, b, row_ptr, col_idx, costs, n, m,
+            G_cold, info["u"], info["v"],
+        )
     warm_cost = float(G_w.multiply(M).sum())
     assert abs(warm_cost - cold_cost) < 1e-9
 

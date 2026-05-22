@@ -62,12 +62,38 @@ def test_dense_center_dual_preserves_sum():
 
 
 def test_sparse_log_dict_and_duality():
+    # Banded support (k=7 over n=16) keeps the CSR genuinely sparse — about
+    # 41% dense, on the sparse path (avoids the >50%-dense RuntimeWarning
+    # under strict CI). Marginals are built from random weights placed on
+    # the band itself, guaranteeing primal feasibility.
     rng = np.random.default_rng(3)
-    n, m = 8, 8
-    a = rng.dirichlet(np.ones(n))
-    b = rng.dirichlet(np.ones(m))
-    M_d = rng.uniform(0.0, 1.0, size=(n, m))
-    M_sp = scipy.sparse.csr_matrix(M_d)
+    n, m = 16, 16
+    k = 7
+    half = k // 2
+    rows, cols, costs = [], [], []
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(m, lo + k)
+        lo = max(0, hi - k)
+        for j in range(lo, hi):
+            rows.append(i)
+            cols.append(j)
+            costs.append(rng.uniform(0.1, 1.0))
+    rows = np.asarray(rows, dtype=np.int32)
+    cols = np.asarray(cols, dtype=np.int32)
+    costs = np.asarray(costs, dtype=np.float64)
+    w = np.exp(rng.standard_normal(costs.size))
+    w /= w.sum()
+    a = np.zeros(n)
+    b = np.zeros(m)
+    np.add.at(a, rows, w)
+    np.add.at(b, cols, w)
+    a /= a.sum()
+    b /= b.sum()
+    M_d = np.zeros((n, m))
+    M_d[rows, cols] = costs
+    M_sp = scipy.sparse.csr_matrix((costs, (rows, cols)), shape=(n, m))
+    assert M_sp.nnz / (n * m) < 0.5  # confirm sparse path
 
     G, info = sparse_ot.emd(a, b, M_sp, log=True)
     assert scipy.sparse.issparse(G)

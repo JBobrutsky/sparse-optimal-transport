@@ -102,124 +102,46 @@ after a `src/cpp/` edit.
 
 ## Benchmarks
 
-Two independent suites:
-
 ```bash
-python benchmarks/bench_solvers.py --mid     # ~15 minutes
-python benchmarks/bench_solvers.py --quick   # ~30 seconds (used by CI)
-python benchmarks/bench_solvers.py           # full sweep, hours
+python benchmarks/bench.py --quick    # ~30 s (used by CI)
+python benchmarks/bench.py --mid      # ~15 min
+python benchmarks/bench.py            # full sweep (hours)
+python benchmarks/report.py --quick   # produce figures from bench_quick.json
 ```
 
-- **Dense suite** — fully-random `n × n` cost matrix. Compares
-  `bonneel_dense` against `pot_reference` (`ot.emd`).
-- **Sparse suite** — feasible-by-construction kNN-grid (`benchmarks/problems.py`).
-  Runs `bonneel_sparse` only; there is no honest dense representation of
-  a kNN cost (absent edges must be +∞, which neither POT nor Bonneel's
-  dense path can express).
-
-Results are written to `benchmarks/results/{efficiency,accuracy}_{tag}.json`
-with the structure:
-
-```jsonc
-{
-  "dense":  { "<n>": { "bonneel_dense": {...}, "pot_reference": {...} } },
-  "sparse": { "<n>": { "<k>": { "bonneel_sparse": {...} } } }
-}
-```
-
-See "Benchmark results" below for the current numbers on the maintainer's
-laptop.
+Results are written to `benchmarks/results/bench_{tag}.json` (flat `cells` list + power-law `fits`). Figures go to `benchmarks/results/figures/`.
 
 ## Benchmark results
 
-Numbers below are from `python benchmarks/bench_solvers.py --mid` on an
-Apple-Silicon laptop (Sonoma, 64 GB). Wall times are median of 1 run; the
-sparse-suite peak memory is `tracemalloc` peak during `emd()`.
+Numbers below are from `python benchmarks/bench.py --mid` on an Apple-Silicon laptop (Sonoma, 64 GB). Wall times are median of 1 run. `~` marks power-law-extrapolated competitor wall times (R² ≥ 0.95 required; see `fits` in the JSON for coefficients).
 
-### Dense suite (fully random `n × n` cost)
+### Dense cold-start
 
-| n     | `bonneel_dense` | `pot_reference` | dense / pot |
-|------:|----------------:|----------------:|------------:|
-|   200 |          0.003s |          0.002s |       0.66× |
-|   500 |          0.019s |          0.015s |       0.80× |
-|  1000 |          0.085s |          0.072s |       0.85× |
-|  2000 |          0.406s |          0.346s |       0.85× |
-|  4000 |          2.166s |          1.414s |       0.65× |
+![dense cold](benchmarks/results/figures/dense_cold.png)
 
-POT and `bonneel_dense` share the same C++ engine (POT vendors Bonneel's
-network simplex), so the wall-time ratio reflects pure wrapping overhead;
-POT's Cython wrapper is marginally tighter than our pybind11 wrapper.
-Costs agree to machine precision for n ≤ 2000. At n = 4000, POT's cost
-is 1.1 % higher than ours — POT's default `numItermax = 100 000`
-truncates before convergence, while our problem-size-aware default
-finishes the pivots.
+sparse-ot and POT share the same C++ engine (POT vendors Bonneel's network simplex). The small wrapping overhead disappears at large n where POT's default `numItermax = 100 000` truncates before convergence while our problem-size-aware default does not.
 
-### Sparse suite (knn-grid)
+### Sparse cold-start
 
-The same knn problem is run through both Bonneel paths so the
-speed/memory tradeoff is directly comparable. `bonneel_dense` runs only
-where `n ≤ MAX_DENSE_N`; above that the cost matrix doesn't fit and the
-cell is sparse-only. For the dense path we densify with a finite
-penalty (`max(M.data) · (n·m + 1)`) on absent edges — with the
-problem-size-aware `numItermax` the optimal basis never lands on a
-penalty edge.
+![sparse cold](benchmarks/results/figures/sparse_cold.png)
 
-| n      | k    | nnz        | sparse wall | sparse peak | dense wall | dense peak | winner       |
-|-------:|-----:|-----------:|------------:|------------:|-----------:|-----------:|:-------------|
-|    200 |    2 |        400 |      0.006s |    0.04 MB |     0.003s |    0.32 MB |  dense 2.4×  |
-|    200 |   32 |      6 400 |      0.051s |    0.14 MB |     0.004s |    0.32 MB |  dense 14×   |
-|    200 |  128 |     25 600 |      0.204s |    0.52 MB |     0.003s |    0.32 MB |  dense 71×   |
-|  1 000 |    2 |      2 000 |      0.033s |    0.15 MB |     0.075s |    7.69 MB |  **sparse 2.3×** |
-|  1 000 |    8 |      8 000 |      0.100s |    0.22 MB |     0.178s |    7.69 MB |  **sparse 1.8×** |
-|  1 000 |   32 |     32 000 |      0.315s |    0.67 MB |     0.182s |    7.69 MB |  dense 1.7×  |
-|  1 000 |  128 |    128 000 |      1.103s |    2.59 MB |     0.256s |    7.69 MB |  dense 4.3×  |
-|  4 000 |    2 |      8 000 |      0.134s |    0.60 MB |     1.652s |  122.3  MB |  **sparse 12×**  |
-|  4 000 |    8 |     32 000 |      0.577s |    0.87 MB |     8.918s |  122.3  MB |  **sparse 15×**  |
-|  4 000 |   32 |    128 000 |      1.572s |    2.66 MB |     8.574s |  122.3  MB |  **sparse 5.5×** |
-|  4 000 |  128 |    512 000 |      4.540s |   10.35 MB |    10.298s |  122.3  MB |  **sparse 2.3×** |
-|  4 000 |  400 |  1 600 000 |     14.473s |   32.14 MB |     8.393s |  122.3  MB |  dense 1.7×  |
-|  4 000 |  512 |  2 048 000 |     17.956s |   41.11 MB |     9.535s |  122.3  MB |  dense 1.9×  |
-| 16 000 |    2 |     32 000 |      0.531s |    2.39 MB |       —    |      —     |  sparse only |
-| 16 000 |   32 |    512 000 |     12.066s |   10.62 MB |       —    |      —     |  sparse only |
-| 16 000 |  128 |  2 048 000 |     32.955s |   41.38 MB |       —    |      —     |  sparse only |
-| 16 000 |  512 |  8 192 000 |     75.201s |  164.4  MB |       —    |      —     |  sparse only |
-| 16 000 | 1600 | 25 600 000 |    269.488s |  513.1  MB |       —    |      —     |  sparse only |
+kNN-grid CSR problems. Heatmap shows log₁₀(sparse-ot / POT) wall time; blue = sparse-ot faster. POT and OR-Tools are measured only for n ≤ 2 000; dashed contour marks the 1× crossover. At n ≥ 4 000 with moderate k, sparse-ot wins by 5–15× on time while using <10 MB vs the O(n²) memory a dense solver would require.
 
-Reading the table:
+### Warm-start speedup
 
-- At **n = 200** the dense path always wins because the n² cost matrix is
-  tiny and Bonneel's flat-array constants dominate over the sparse
-  digraph's per-arc indirection.
-- At **n = 1 000** the crossover is around k ≈ n / 50: below that, sparse
-  wins; above, dense wins.
-- At **n = 4 000** sparse wins by 2–15× up to k ≈ n / 20. Above that
-  density, dense again wins on time but its memory cost is fixed at
-  122 MB regardless of k.
-- At **n = 16 000** the dense path is out of reach (cost matrix ≈ 2 GB);
-  only sparse runs.
+![warm speedup](benchmarks/results/figures/warm_speedup.png)
 
-### Accuracy
+`warm_ratio=0.25` means the warm solve uses k/4 edges per row; the refinement step completes on the full k-edge support. Wall time shown is the refinement step only (phase 2). The cold baseline comes from the sparse cold-start cells.
 
-Marginals stay at machine precision (worst case `2.5 × 10⁻¹⁶`) across
-every cell of both suites. On the knn problems, `bonneel_sparse` and
-`bonneel_dense` agree on cost to ≈ machine precision in 22 of 24 cells.
-Two exceptions:
+### Correctness
 
-| n     | k    | sparse cost | dense cost | relative diff |
-|------:|-----:|------------:|-----------:|--------------:|
-| 4 000 |  400 |  271.7297   | 272.2578   |    1.9 × 10⁻³ |
-| 4 000 |  512 |  557.3260   | 557.3270   |    1.7 × 10⁻⁶ |
+![accuracy](benchmarks/results/figures/accuracy.png)
 
-In both cases `bonneel_sparse` finds a strictly lower-cost plan. The
-densified-with-penalty input introduces costs on the order of
-`max(M) · n² ≈ 10¹²`, and floating-point reduced-cost computations on
-that scale accumulate enough rounding noise to push the pivot rule off
-the true optimum. The sparse path never sees those large numbers and is
-the more accurate of the two when both can run.
+All measured sparse-ot cells agree with POT to better than 1e-10 relative cost error. OR-Tools rounds costs to integers (scale factor 10⁶), so its agreement with sparse-ot is bounded at ~1e-6. Marginal errors stay at machine precision (worst case 2.5 × 10⁻¹⁶) across all cells.
 
 ## Memory cutoffs
 
-`bench_solvers.py` skips cells beyond these defaults (16 GB target):
+`bench.py` skips cells beyond these defaults (16 GB target):
 
 | Constant         | Default       | Effect                                     |
 |------------------|---------------|--------------------------------------------|

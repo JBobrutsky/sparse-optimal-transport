@@ -1,4 +1,5 @@
-"""Unified benchmark orchestrator: dense_cold, sparse_cold, sparse_warm scenarios.
+"""Unified benchmark orchestrator: dense_cold, sparse_cold, sparse_warm_expand,
+sparse_warm_perturb (plus matched sparse_cold_expand and sparse_cold_abs baselines).
 
 Usage:
     python benchmarks/bench.py --quick   -> benchmarks/results/bench_quick.json
@@ -38,7 +39,7 @@ KNN_NS_FULL    = [200, 1_000, 4_000, 16_000, 64_000, 256_000, 1_000_000, 4_000_0
 KNN_KS_FULL    = [2, 8, 32, 128, 512, 2_048]
 
 KNN_NS_WARM_MAX = 1_000_000
-WARM_RATIOS     = [0.25, 1.0]
+WARM_RATIOS     = [0.5, 0.75, 0.9, 0.95]
 
 
 # ---------------------------------------------------------------------------
@@ -79,30 +80,6 @@ def _cell(
         "marginal_err_b": result.marginal_err_b,
         "extrapolated": extrapolated,
     }
-
-
-def _restrict_to_k(M_full_csr, k_warm):
-    """Sub-select the k_warm cheapest edges per row from M_full's support."""
-    import scipy.sparse
-
-    n = M_full_csr.shape[0]
-    indptr  = M_full_csr.indptr
-    indices = M_full_csr.indices
-    data    = M_full_csr.data
-    keep_mask = np.zeros(len(data), dtype=bool)
-    for i in range(n):
-        s, e = int(indptr[i]), int(indptr[i + 1])
-        row_len = e - s
-        if row_len <= k_warm:
-            keep_mask[s:e] = True
-        else:
-            local_keep = np.argpartition(data[s:e], k_warm)[:k_warm]
-            keep_mask[s + local_keep] = True
-    row_idx = np.repeat(np.arange(n, dtype=np.int32), np.diff(indptr))
-    return scipy.sparse.csr_matrix(
-        (data[keep_mask], (row_idx[keep_mask], indices[keep_mask])),
-        shape=M_full_csr.shape,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -157,11 +134,53 @@ def run_sparse_cold(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dic
     return cells
 
 
-def run_sparse_warm(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dict]:
-    """Scenario 3: sparse_warm — warm-started solve on k-NN grid problems."""
-    from sparse_ot import emd
-    from benchmarks.problems import generate_knn_grid_problem
+def run_sparse_warm_expand(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dict]:
+    """Scenario: phase 1 solves on k_warm-NN support (feasible by construction),
+    phase 2 (timed) refines on the larger k_full-NN support."""
+    from benchmarks.problems import generate_knn_grid_warm_expand
     from benchmarks.solvers import solve_sparse_ot
+    from sparse_ot import emd
+
+    cells = []
+    for n in knn_ns:
+        if n > KNN_NS_WARM_MAX:
+            continue
+        for k_full in knn_ks:
+            if k_full > n:
+                continue
+            for warm_ratio in WARM_RATIOS:
+                k_warm = max(2, int(round(k_full * warm_ratio)))
+                if k_warm >= k_full:
+                    continue
+                a, b, M_warm, M_full, _ = generate_knn_grid_warm_expand(
+                    n=n, k_warm=k_warm, k_full=k_full, seed=0,
+                )
+                M_full = M_full.tocsr()
+                # Phase 1 (NOT timed)
+                G_warm, info_warm = emd(a, b, M_warm, log=True)
+                print(f"  sparse_warm_expand n={n} k_full={k_full} warm_ratio={warm_ratio}", flush=True)
+                # Cold reference solve on M_full (matched baseline for warm-expand).
+                for _ in range(runs):
+                    gc.collect()
+                    res_cold = solve_sparse_ot(a, b, M_full)
+                    cells.append(_cell(
+                        "sparse_cold_expand", n, k_full, "sparse_ot", warm_ratio, res_cold,
+                    ))
+                for _ in range(runs):
+                    gc.collect()
+                    res = solve_sparse_ot(a, b, M_full, warm=(G_warm, info_warm))
+                    cells.append(_cell(
+                        "sparse_warm_expand", n, k_full, "sparse_ot", warm_ratio, res,
+                    ))
+    return cells
+
+
+def run_sparse_warm_perturb(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dict]:
+    """Scenario: phase 1 solves with M_squared (L2^2 costs), phase 2 (timed)
+    refines with M_abs (L1 costs) on the same k-NN support."""
+    from benchmarks.problems import generate_knn_grid_warm_perturb
+    from benchmarks.solvers import solve_sparse_ot
+    from sparse_ot import emd
 
     cells = []
     for n in knn_ns:
@@ -170,22 +189,25 @@ def run_sparse_warm(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dic
         for k in knn_ks:
             if k > n:
                 continue
-            a, b, M_full, _ = generate_knn_grid_problem(n, k, seed=0)
-            M_full = M_full.tocsr()
-            for warm_ratio in WARM_RATIOS:
-                k_warm = max(2, int(round(k * warm_ratio)))
-                M_warm = _restrict_to_k(M_full, k_warm)
-                print(f"  sparse_warm n={n} k={k} warm_ratio={warm_ratio}", flush=True)
-
-                # Phase 1 (NOT timed for the cell); seed=0 always gives same result
-                G_warm, info_warm = emd(a, b, M_warm, log=True)
-
-                for _ in range(runs):
-                    gc.collect()
-                    # Phase 2 (timed)
-                    res = solve_sparse_ot(a, b, M_full, warm=(G_warm, info_warm))
-                    cells.append(_cell("sparse_warm", n, k, "sparse_ot", warm_ratio, res))
-
+            a, b, M_sq, M_abs, _ = generate_knn_grid_warm_perturb(n=n, k=k, seed=0)
+            M_sq = M_sq.tocsr()
+            M_abs = M_abs.tocsr()
+            # Phase 1 (NOT timed)
+            G_warm, info_warm = emd(a, b, M_sq, log=True)
+            print(f"  sparse_warm_perturb n={n} k={k}", flush=True)
+            # Cold reference solve on M_abs (matched baseline for the perturb cell).
+            for _ in range(runs):
+                gc.collect()
+                res_cold = solve_sparse_ot(a, b, M_abs)
+                cells.append(_cell(
+                    "sparse_cold_abs", n, k, "sparse_ot", None, res_cold,
+                ))
+            for _ in range(runs):
+                gc.collect()
+                res = solve_sparse_ot(a, b, M_abs, warm=(G_warm, info_warm))
+                cells.append(_cell(
+                    "sparse_warm_perturb", n, k, "sparse_ot", None, res,
+                ))
     return cells
 
 
@@ -351,7 +373,8 @@ def main():
     cells = []
     cells += run_dense_cold(dense_ns, runs)
     cells += run_sparse_cold(knn_ns, knn_ks, runs)
-    cells += run_sparse_warm(knn_ns, knn_ks, runs)
+    cells += run_sparse_warm_expand(knn_ns, knn_ks, runs)
+    cells += run_sparse_warm_perturb(knn_ns, knn_ks, runs)
 
     fits = _compute_fits(cells)
     cells = _add_extrapolated_cells(cells, fits, dense_ns, knn_ns, knn_ks)

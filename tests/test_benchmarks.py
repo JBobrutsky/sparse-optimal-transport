@@ -98,7 +98,8 @@ def test_bench_quick_smoke(tmp_path):
     scenarios = {c["scenario"] for c in data["cells"]}
     assert "dense_cold" in scenarios
     assert "sparse_cold" in scenarios
-    assert "sparse_warm" in scenarios
+    assert "sparse_warm_expand" in scenarios
+    assert "sparse_warm_perturb" in scenarios
 
     sparse_ot_cells = [c for c in data["cells"] if c["solver"] == "sparse_ot"]
     assert len(sparse_ot_cells) > 0
@@ -169,40 +170,67 @@ def test_report_quick_produces_pngs(tmp_path):
     assert result.returncode == 0, f"report.py --quick failed:\n{result.stderr}"
 
     figures_dir = repo_root / "benchmarks/results/figures"
-    for name in ("dense_cold.png", "sparse_cold.png", "warm_speedup.png", "accuracy.png"):
+    for name in ("dense_cold.png", "sparse_cold.png",
+                 "warm_speedup_expand.png", "warm_speedup_perturb.png",
+                 "accuracy.png"):
         assert (figures_dir / name).exists(), f"Missing figure: {name}"
 
 
-def test_fig_warm_speedup_skips_k_with_no_reduction(tmp_path):
-    """fig_warm_speedup must not plot (k, warm_ratio) where k_warm == k."""
-    from benchmarks.report import fig_warm_speedup
+def test_fig_warm_speedup_expand_picks_largest_ratio_and_k(tmp_path):
+    """fig_warm_speedup_expand picks the largest k_warm/k ratio with k_warm < k;
+    tiebreak largest k."""
+    from benchmarks.report import fig_warm_speedup_expand
 
     cells = [
-        # Cold
-        {"scenario": "sparse_cold", "solver": "sparse_ot", "n": 1000, "k": 2,
-         "warm_ratio": None, "wall_s": 0.10, "peak_mb": 0.0, "cost": 0.0,
+        # Cold reference cells (per (n, k_full, warm_ratio))
+        {"scenario": "sparse_cold_expand", "solver": "sparse_ot", "n": 1000, "k": 8,
+         "warm_ratio": 0.9, "wall_s": 0.30, "peak_mb": 0.0, "cost": 0.0,
          "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
-        {"scenario": "sparse_cold", "solver": "sparse_ot", "n": 1000, "k": 32,
-         "warm_ratio": None, "wall_s": 0.50, "peak_mb": 0.0, "cost": 0.0,
+        {"scenario": "sparse_cold_expand", "solver": "sparse_ot", "n": 1000, "k": 32,
+         "warm_ratio": 0.9, "wall_s": 0.50, "peak_mb": 0.0, "cost": 0.0,
          "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
-        # Warm (warm_ratio=0.25 → k_warm=2 for k=2 [degenerate] and k_warm=8 for k=32)
-        {"scenario": "sparse_warm", "solver": "sparse_ot", "n": 1000, "k": 2,
-         "warm_ratio": 0.25, "wall_s": 0.10, "peak_mb": 0.0, "cost": 0.0,
+        # Degenerate: ratio 0.9 with k=2 → k_warm = max(2, round(2*0.9)) = 2 == k.
+        {"scenario": "sparse_cold_expand", "solver": "sparse_ot", "n": 1000, "k": 2,
+         "warm_ratio": 0.9, "wall_s": 0.10, "peak_mb": 0.0, "cost": 0.0,
          "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
-        {"scenario": "sparse_warm", "solver": "sparse_ot", "n": 1000, "k": 32,
-         "warm_ratio": 0.25, "wall_s": 0.20, "peak_mb": 0.0, "cost": 0.0,
+        # Warm
+        {"scenario": "sparse_warm_expand", "solver": "sparse_ot", "n": 1000, "k": 2,
+         "warm_ratio": 0.9, "wall_s": 0.10, "peak_mb": 0.0, "cost": 0.0,
          "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
-        # Another valid candidate at same ratio (k_warm=2 for k=8, ratio 0.25)
-        {"scenario": "sparse_cold", "solver": "sparse_ot", "n": 1000, "k": 8,
-         "warm_ratio": None, "wall_s": 0.30, "peak_mb": 0.0, "cost": 0.0,
+        {"scenario": "sparse_warm_expand", "solver": "sparse_ot", "n": 1000, "k": 32,
+         "warm_ratio": 0.9, "wall_s": 0.20, "peak_mb": 0.0, "cost": 0.0,
          "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
-        {"scenario": "sparse_warm", "solver": "sparse_ot", "n": 1000, "k": 8,
-         "warm_ratio": 0.25, "wall_s": 0.25, "peak_mb": 0.0, "cost": 0.0,
+        {"scenario": "sparse_warm_expand", "solver": "sparse_ot", "n": 1000, "k": 8,
+         "warm_ratio": 0.9, "wall_s": 0.25, "peak_mb": 0.0, "cost": 0.0,
          "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
     ]
-    result = fig_warm_speedup(cells, tmp_path)
-    assert result == (32, 0.25), f"expected (32, 0.25), got {result}"
-    assert (tmp_path / "warm_speedup.png").exists()
+    result = fig_warm_speedup_expand(cells, tmp_path)
+    assert result == (32, 0.9), f"expected (32, 0.9), got {result}"
+    assert (tmp_path / "warm_speedup_expand.png").exists()
+
+
+def test_fig_warm_speedup_perturb_picks_largest_k(tmp_path):
+    from benchmarks.report import fig_warm_speedup_perturb
+
+    cells = [
+        # Cold baseline on M_abs
+        {"scenario": "sparse_cold_abs", "solver": "sparse_ot", "n": 1000, "k": 32,
+         "warm_ratio": None, "wall_s": 0.50, "peak_mb": 0.0, "cost": 0.0,
+         "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
+        {"scenario": "sparse_cold_abs", "solver": "sparse_ot", "n": 1000, "k": 128,
+         "warm_ratio": None, "wall_s": 2.00, "peak_mb": 0.0, "cost": 0.0,
+         "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
+        # Warm
+        {"scenario": "sparse_warm_perturb", "solver": "sparse_ot", "n": 1000, "k": 32,
+         "warm_ratio": None, "wall_s": 0.10, "peak_mb": 0.0, "cost": 0.0,
+         "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
+        {"scenario": "sparse_warm_perturb", "solver": "sparse_ot", "n": 1000, "k": 128,
+         "warm_ratio": None, "wall_s": 0.30, "peak_mb": 0.0, "cost": 0.0,
+         "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
+    ]
+    result = fig_warm_speedup_perturb(cells, tmp_path)
+    assert result == 128, f"expected k=128, got {result}"
+    assert (tmp_path / "warm_speedup_perturb.png").exists()
 
 
 @pytest.mark.parametrize("n,k", [(50, 1), (50, 2), (200, 4), (1000, 8)])

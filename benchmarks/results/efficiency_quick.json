@@ -2,12 +2,12 @@
   "dense": {
     "200": {
       "bonneel_dense": {
-        "wall_time_s": 0.0036261659115552902,
+        "wall_time_s": 0.003438541665673256,
         "peak_rss_mb": 0.33230113983154297,
         "n_runs": 1
       },
       "pot_reference": {
-        "wall_time_s": 0.0021190401166677475,
+        "wall_time_s": 0.002172168344259262,
         "peak_rss_mb": 0.617523193359375,
         "n_runs": 1
       }
@@ -17,13 +17,13 @@
     "200": {
       "4": {
         "bonneel_sparse": {
-          "wall_time_s": 0.009901124984025955,
-          "peak_rss_mb": 0.049307823181152344,
+          "wall_time_s": 0.009268250316381454,
+          "peak_rss_mb": 0.04271888732910156,
           "n_runs": 1,
           "nnz": 800
         },
         "bonneel_dense": {
-          "wall_time_s": 0.003790084272623062,
+          "wall_time_s": 0.003574041649699211,
           "peak_rss_mb": 0.3192901611328125,
           "n_runs": 1,
           "nnz": 800
@@ -31,13 +31,13 @@
       },
       "20": {
         "bonneel_sparse": {
-          "wall_time_s": 0.032799042761325836,
+          "wall_time_s": 0.03308874927461147,
           "peak_rss_mb": 0.08734130859375,
           "n_runs": 1,
           "nnz": 4000
         },
         "bonneel_dense": {
-          "wall_time_s": 0.0029694605618715286,
+          "wall_time_s": 0.0031870417296886444,
           "peak_rss_mb": 0.3192901611328125,
           "n_runs": 1,
           "nnz": 4000
@@ -45,13 +45,13 @@
       },
       "32": {
         "bonneel_sparse": {
-          "wall_time_s": 0.05066387355327606,
+          "wall_time_s": 0.050260668620467186,
           "peak_rss_mb": 0.1353302001953125,
           "n_runs": 1,
           "nnz": 6400
         },
         "bonneel_dense": {
-          "wall_time_s": 0.003464043140411377,
+          "wall_time_s": 0.0034053735435009003,
           "peak_rss_mb": 0.3192901611328125,
           "n_runs": 1,
           "nnz": 6400
@@ -61,13 +61,13 @@
     "1000": {
       "4": {
         "bonneel_sparse": {
-          "wall_time_s": 0.06260495819151402,
-          "peak_rss_mb": 0.17694473266601562,
+          "wall_time_s": 0.061684625223279,
+          "peak_rss_mb": 0.14624404907226562,
           "n_runs": 1,
           "nnz": 4000
         },
         "bonneel_dense": {
-          "wall_time_s": 0.1978756245225668,
+          "wall_time_s": 0.1956978365778923,
           "peak_rss_mb": 7.6923675537109375,
           "n_runs": 1,
           "nnz": 4000
@@ -75,13 +75,13 @@
       },
       "32": {
         "bonneel_sparse": {
-          "wall_time_s": 0.35188387520611286,
+          "wall_time_s": 0.31012983061373234,
           "peak_rss_mb": 0.6661834716796875,
           "n_runs": 1,
           "nnz": 32000
         },
         "bonneel_dense": {
-          "wall_time_s": 0.18469108268618584,
+          "wall_time_s": 0.18479441665112972,
           "peak_rss_mb": 7.6923675537109375,
           "n_runs": 1,
           "nnz": 32000
@@ -89,13 +89,13 @@
       },
       "100": {
         "bonneel_sparse": {
-          "wall_time_s": 0.9037472922354937,
+          "wall_time_s": 0.8787101227790117,
           "peak_rss_mb": 2.0279922485351562,
           "n_runs": 1,
           "nnz": 100000
         },
         "bonneel_dense": {
-          "wall_time_s": 0.2186349593102932,
+          "wall_time_s": 0.21698604337871075,
           "peak_rss_mb": 7.6923675537109375,
           "n_runs": 1,
           "nnz": 100000

@@ -190,6 +190,143 @@ def run_sparse_warm(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dic
 
 
 # ---------------------------------------------------------------------------
+# Power-law fitting and extrapolation
+# ---------------------------------------------------------------------------
+
+def _compute_fits(cells):
+    from scipy.optimize import curve_fit
+
+    fits = {}
+
+    def _fit_dense(solver):
+        pts = [
+            (c["n"], c["wall_s"])
+            for c in cells
+            if c["scenario"] == "dense_cold"
+            and c["solver"] == solver
+            and not c["extrapolated"]
+        ]
+        if len(pts) < 3:
+            return None
+        ns = np.array([p[0] for p in pts], dtype=float)
+        ts = np.array([p[1] for p in pts], dtype=float)
+        try:
+            def model(log_n, log_a, b):
+                return log_a + b * log_n
+            popt, _ = curve_fit(model, np.log(ns), np.log(ts))
+            log_a, b = popt
+            y_pred = model(np.log(ns), *popt)
+            ss_res = np.sum((np.log(ts) - y_pred) ** 2)
+            ss_tot = np.sum((np.log(ts) - np.log(ts).mean()) ** 2)
+            r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else 1.0
+            if r2 < 0.95:
+                return None
+            return {"a": float(np.exp(log_a)), "b": float(b), "r2": r2}
+        except Exception:
+            return None
+
+    def _fit_sparse(solver):
+        pts = [
+            (c["n"], c["k"], c["wall_s"])
+            for c in cells
+            if c["scenario"] == "sparse_cold"
+            and c["solver"] == solver
+            and not c["extrapolated"]
+            and c["k"] is not None
+        ]
+        if len(pts) < 3:
+            return None
+        ns = np.array([p[0] for p in pts], dtype=float)
+        ks = np.array([p[1] for p in pts], dtype=float)
+        ts = np.array([p[2] for p in pts], dtype=float)
+        try:
+            def model(X, log_a, b, c_):
+                return log_a + b * X[0] + c_ * X[1]
+            popt, _ = curve_fit(model, (np.log(ns), np.log(ks)), np.log(ts))
+            log_a, b, c_ = popt
+            y_pred = model((np.log(ns), np.log(ks)), *popt)
+            ss_res = np.sum((np.log(ts) - y_pred) ** 2)
+            ss_tot = np.sum((np.log(ts) - np.log(ts).mean()) ** 2)
+            r2 = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else 1.0
+            if r2 < 0.95:
+                return None
+            return {"a": float(np.exp(log_a)), "b": float(b), "c": float(c_), "r2": r2}
+        except Exception:
+            return None
+
+    for solver in ("pot", "ortools"):
+        f = _fit_dense(solver)
+        if f:
+            fits[f"{solver}_dense"] = f
+        f = _fit_sparse(solver)
+        if f:
+            fits[f"{solver}_sparse"] = f
+
+    return fits
+
+
+def _add_extrapolated_cells(cells, fits, dense_ns, knn_ns, knn_ks):
+    from benchmarks.solvers import POT_MAX_N, ORTOOLS_MAX_N
+
+    extra = []
+
+    # Dense: add extrapolated cells for n > solver cutoff.
+    measured_dense = {
+        (c["solver"], c["n"])
+        for c in cells
+        if c["scenario"] == "dense_cold" and not c["extrapolated"]
+    }
+    for n in dense_ns:
+        for solver, cutoff, fit_key in [
+            ("pot",     POT_MAX_N,     "pot_dense"),
+            ("ortools", ORTOOLS_MAX_N, "ortools_dense"),
+        ]:
+            if (solver, n) in measured_dense:
+                continue
+            if fit_key not in fits:
+                continue
+            f = fits[fit_key]
+            t_hat = f["a"] * n ** f["b"]
+            extra.append({
+                "scenario": "dense_cold", "n": n, "k": None,
+                "solver": solver, "warm_ratio": None,
+                "wall_s": t_hat, "peak_mb": None,
+                "cost": None, "marginal_err_a": None, "marginal_err_b": None,
+                "extrapolated": True,
+            })
+
+    # Sparse: add extrapolated cells for (n, k) combos the solver skipped.
+    measured_sparse = {
+        (c["solver"], c["n"], c["k"])
+        for c in cells
+        if c["scenario"] == "sparse_cold" and not c["extrapolated"]
+    }
+    for n in knn_ns:
+        for k in knn_ks:
+            if k > n:
+                continue
+            for solver, cutoff, fit_key in [
+                ("pot",     POT_MAX_N,     "pot_sparse"),
+                ("ortools", ORTOOLS_MAX_N, "ortools_sparse"),
+            ]:
+                if (solver, n, k) in measured_sparse:
+                    continue
+                if fit_key not in fits:
+                    continue
+                f = fits[fit_key]
+                t_hat = f["a"] * n ** f["b"] * k ** f["c"]
+                extra.append({
+                    "scenario": "sparse_cold", "n": n, "k": k,
+                    "solver": solver, "warm_ratio": None,
+                    "wall_s": t_hat, "peak_mb": None,
+                    "cost": None, "marginal_err_a": None, "marginal_err_b": None,
+                    "extrapolated": True,
+                })
+
+    return cells + extra
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -215,7 +352,9 @@ def main():
     cells += run_sparse_cold(knn_ns, knn_ks, runs)
     cells += run_sparse_warm(knn_ns, knn_ks, runs)
 
-    out = {"meta": _meta(tag), "cells": cells, "fits": {}}
+    fits = _compute_fits(cells)
+    cells = _add_extrapolated_cells(cells, fits, dense_ns, knn_ns, knn_ks)
+    out = {"meta": _meta(tag), "cells": cells, "fits": fits}
     out_path.write_text(json.dumps(out, indent=2) + "\n")
     print(f"[bench] wrote {out_path} ({len(cells)} cells)", flush=True)
 

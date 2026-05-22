@@ -142,6 +142,37 @@ def test_bench_quick_fits_structure():
         assert isinstance(c["extrapolated"], bool)
 
 
+@pytest.mark.timeout(600)
+def test_report_quick_produces_pngs(tmp_path):
+    """report.py --quick produces all 4 PNG files."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
+
+    # Ensure bench_quick.json exists.
+    bench_out = repo_root / "benchmarks/results/bench_quick.json"
+    if not bench_out.exists():
+        subprocess.run(
+            [sys.executable, "benchmarks/bench.py", "--quick"],
+            cwd=str(repo_root), env=env, check=True, timeout=600,
+        )
+
+    result = subprocess.run(
+        [sys.executable, "benchmarks/report.py", "--quick"],
+        cwd=str(repo_root), env=env, capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, f"report.py --quick failed:\n{result.stderr}"
+
+    figures_dir = repo_root / "benchmarks/results/figures"
+    for name in ("dense_cold.png", "sparse_cold.png", "warm_speedup.png", "accuracy.png"):
+        assert (figures_dir / name).exists(), f"Missing figure: {name}"
+
+
 @pytest.mark.parametrize("n,k", [(50, 1), (50, 2), (200, 4), (1000, 8)])
 def test_generator_produces_feasible_instance(n, k):
     from sparse_ot.feasibility import check_feasibility

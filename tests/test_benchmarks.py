@@ -56,45 +56,59 @@ def test_generate_seed_differs():
 
 
 @pytest.mark.timeout(600)
-def test_bench_solvers_quick_smoke(tmp_path):
-    """`python benchmarks/bench_solvers.py --quick` exits 0 and writes JSON."""
-    import subprocess, sys, os
+def test_bench_quick_smoke(tmp_path):
+    """`python benchmarks/bench.py --quick` exits 0 and writes bench_quick.json."""
+    import json
+    import os
+    import subprocess
+    import sys
     from pathlib import Path
+
     repo_root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
+
     result = subprocess.run(
-        [sys.executable, "benchmarks/bench_solvers.py", "--quick"],
-        cwd=str(repo_root), env=env, capture_output=True, text=True, timeout=600,
+        [sys.executable, "benchmarks/bench.py", "--quick"],
+        cwd=str(repo_root),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=600,
     )
-    assert result.returncode == 0, f"stderr: {result.stderr}"
-    assert (repo_root / "benchmarks/results/efficiency_quick.json").exists()
-    assert (repo_root / "benchmarks/results/accuracy_quick.json").exists()
+    assert result.returncode == 0, f"bench.py --quick failed:\n{result.stderr}"
 
-    import json
-    eff = json.loads((repo_root / "benchmarks/results/efficiency_quick.json").read_text())
-    acc = json.loads((repo_root / "benchmarks/results/accuracy_quick.json").read_text())
+    out_path = repo_root / "benchmarks/results/bench_quick.json"
+    assert out_path.exists(), "bench_quick.json not written"
 
-    # New structure: top level splits "dense" and "sparse" suites.
-    assert set(eff.keys()) == {"dense", "sparse"}
-    assert set(acc.keys()) == {"dense", "sparse"}
+    data = json.loads(out_path.read_text())
+    assert "meta" in data
+    assert "cells" in data
+    assert "fits" in data
+    assert isinstance(data["cells"], list)
+    assert len(data["cells"]) > 0
 
-    dense_cell = eff["dense"]["200"]
-    assert set(dense_cell.keys()) == {"bonneel_dense", "pot_reference"}
-    for cfg in ("bonneel_dense", "pot_reference"):
-        assert isinstance(dense_cell[cfg], dict)
-        assert dense_cell[cfg].get("wall_time_s") is not None
+    required = {"scenario", "n", "k", "solver", "warm_ratio",
+                "wall_s", "peak_mb", "cost", "marginal_err_a", "marginal_err_b",
+                "extrapolated"}
+    for cell in data["cells"]:
+        missing = required - set(cell.keys())
+        assert not missing, f"Cell missing keys {missing}: {cell}"
 
-    sparse_cell = eff["sparse"]["200"]["4"]
-    # Sparse suite cells include both Bonneel paths when n <= MAX_DENSE_N,
-    # so the dense column can be compared against the sparse column on the
-    # same input. At n=200 both run.
-    assert set(sparse_cell.keys()) >= {"bonneel_sparse", "bonneel_dense"}
-    assert sparse_cell["bonneel_sparse"].get("wall_time_s") is not None
-    assert sparse_cell["bonneel_dense"].get("wall_time_s") is not None
+    scenarios = {c["scenario"] for c in data["cells"]}
+    assert "dense_cold" in scenarios
+    assert "sparse_cold" in scenarios
 
-    assert "200" in acc["dense"]
-    assert "200" in acc["sparse"] and "1000" in acc["sparse"]
+    sparse_ot_cells = [c for c in data["cells"] if c["solver"] == "sparse_ot"]
+    assert len(sparse_ot_cells) > 0
+
+    for c in data["cells"]:
+        if c["scenario"] == "dense_cold":
+            assert c["k"] is None
+
+    for c in data["cells"]:
+        if c["scenario"] == "sparse_cold":
+            assert c["k"] is not None
 
 
 @pytest.mark.parametrize("n,k", [(50, 1), (50, 2), (200, 4), (1000, 8)])

@@ -1,0 +1,232 @@
+"""Unified benchmark orchestrator: dense_cold, sparse_cold, sparse_warm scenarios.
+
+Usage:
+    python benchmarks/bench.py --quick   -> benchmarks/results/bench_quick.json
+    python benchmarks/bench.py --mid     -> benchmarks/results/bench_mid.json
+    python benchmarks/bench.py           -> benchmarks/results/bench.json
+"""
+from __future__ import annotations
+
+import argparse
+import gc
+import json
+import platform
+import socket
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
+
+# ---------------------------------------------------------------------------
+# Sweep parameters
+# ---------------------------------------------------------------------------
+DENSE_NS_QUICK = [200]
+DENSE_NS_MID   = [200, 500, 1_000, 2_000, 4_000]
+DENSE_NS_FULL  = [200, 500, 1_000, 2_000, 4_000, 8_192]
+
+KNN_NS_QUICK   = [200, 1_000]
+KNN_KS_QUICK   = [4, 32]
+KNN_NS_MID     = [200, 1_000, 4_000, 16_000]
+KNN_KS_MID     = [2, 8, 32, 128, 512]
+KNN_NS_FULL    = [200, 1_000, 4_000, 16_000, 64_000, 256_000, 1_000_000, 4_000_000, 16_000_000]
+KNN_KS_FULL    = [2, 8, 32, 128, 512, 2_048]
+
+KNN_NS_WARM_MAX = 1_000_000
+WARM_RATIOS     = [0.25, 1.0]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _meta(tag: str) -> dict:
+    cpu = platform.processor() or platform.machine()
+    return {
+        "host": socket.gethostname(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "tag": tag,
+        "cpu": cpu,
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}",
+    }
+
+
+def _cell(
+    scenario: str,
+    n: int,
+    k,
+    solver: str,
+    warm_ratio,
+    result,
+    extrapolated: bool = False,
+) -> dict:
+    """Convert a SolveResult to a cell dict with all 11 keys."""
+    return {
+        "scenario": scenario,
+        "n": n,
+        "k": k,
+        "solver": solver,
+        "warm_ratio": warm_ratio,
+        "wall_s": result.wall_s,
+        "peak_mb": result.peak_mb,
+        "cost": result.cost,
+        "marginal_err_a": result.marginal_err_a,
+        "marginal_err_b": result.marginal_err_b,
+        "extrapolated": extrapolated,
+    }
+
+
+def _restrict_to_k(M_full_csr, k_warm):
+    """Sub-select the k_warm cheapest edges per row from M_full's support."""
+    import scipy.sparse
+
+    n = M_full_csr.shape[0]
+    indptr  = M_full_csr.indptr
+    indices = M_full_csr.indices
+    data    = M_full_csr.data
+    keep_mask = np.zeros(len(data), dtype=bool)
+    for i in range(n):
+        s, e = int(indptr[i]), int(indptr[i + 1])
+        row_len = e - s
+        if row_len <= k_warm:
+            keep_mask[s:e] = True
+        else:
+            local_keep = np.argpartition(data[s:e], k_warm)[:k_warm]
+            keep_mask[s + local_keep] = True
+    row_idx = np.repeat(np.arange(n, dtype=np.int32), np.diff(indptr))
+    return scipy.sparse.csr_matrix(
+        (data[keep_mask], (row_idx[keep_mask], indices[keep_mask])),
+        shape=M_full_csr.shape,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scenario runners
+# ---------------------------------------------------------------------------
+
+def run_dense_cold(dense_ns: list[int], runs: int) -> list[dict]:
+    """Scenario 1: dense_cold — fully dense random OT problems."""
+    from benchmarks.problems import generate_dense_random_problem
+    from benchmarks.solvers import solve_sparse_ot, solve_pot, solve_ortools
+
+    cells = []
+    for n in dense_ns:
+        for _run in range(runs):
+            gc.collect()
+            a, b, M = generate_dense_random_problem(n, seed=0)
+            print(f"  dense_cold n={n}", flush=True)
+
+            res = solve_sparse_ot(a, b, M)
+            cells.append(_cell("dense_cold", n, None, "sparse_ot", None, res))
+
+            res = solve_pot(a, b, M)
+            if res is not None:
+                cells.append(_cell("dense_cold", n, None, "pot", None, res))
+
+            res = solve_ortools(a, b, M)
+            if res is not None:
+                cells.append(_cell("dense_cold", n, None, "ortools", None, res))
+
+    return cells
+
+
+def run_sparse_cold(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dict]:
+    """Scenario 2: sparse_cold — k-NN grid OT problems, no warm start."""
+    from benchmarks.problems import generate_knn_grid_problem
+    from benchmarks.solvers import solve_sparse_ot, solve_pot, solve_ortools
+
+    cells = []
+    for n in knn_ns:
+        for k in knn_ks:
+            if k > n:
+                continue
+            for _run in range(runs):
+                gc.collect()
+                a, b, M, _ = generate_knn_grid_problem(n, k, seed=0)
+                M = M.tocsr()
+                print(f"  sparse_cold n={n} k={k} nnz={M.nnz}", flush=True)
+
+                res = solve_sparse_ot(a, b, M)
+                cells.append(_cell("sparse_cold", n, k, "sparse_ot", None, res))
+
+                res = solve_pot(a, b, M)
+                if res is not None:
+                    cells.append(_cell("sparse_cold", n, k, "pot", None, res))
+
+                res = solve_ortools(a, b, M)
+                if res is not None:
+                    cells.append(_cell("sparse_cold", n, k, "ortools", None, res))
+
+    return cells
+
+
+def run_sparse_warm(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dict]:
+    """Scenario 3: sparse_warm — warm-started solve on k-NN grid problems."""
+    from sparse_ot import emd
+    from benchmarks.problems import generate_knn_grid_problem
+    from benchmarks.solvers import solve_sparse_ot
+
+    cells = []
+    for n in knn_ns:
+        if n > KNN_NS_WARM_MAX:
+            continue
+        for k in knn_ks:
+            if k > n:
+                continue
+            for warm_ratio in WARM_RATIOS:
+                for _run in range(runs):
+                    gc.collect()
+                    a, b, M_full, _ = generate_knn_grid_problem(n, k, seed=0)
+                    M_full = M_full.tocsr()
+                    k_warm = max(2, int(round(k * warm_ratio)))
+                    M_warm = _restrict_to_k(M_full, k_warm)
+                    print(f"  sparse_warm n={n} k={k} warm_ratio={warm_ratio}", flush=True)
+
+                    # Phase 1 (NOT timed for the cell)
+                    G_warm, info_warm = emd(a, b, M_warm, log=True)
+
+                    # Phase 2 (timed)
+                    res = solve_sparse_ot(a, b, M_full, warm=(G_warm, info_warm))
+                    cells.append(_cell("sparse_warm", n, k, "sparse_ot", warm_ratio, res))
+
+    return cells
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main():
+    ap = argparse.ArgumentParser(description="Benchmark orchestrator for sparse-optimal-transport.")
+    ap.add_argument("--quick", action="store_true", help="Quick sweep (small sizes, 1 run)")
+    ap.add_argument("--mid",   action="store_true", help="Mid sweep (medium sizes, 1 run)")
+    args = ap.parse_args()
+
+    if args.quick:
+        dense_ns, knn_ns, knn_ks, runs, tag = (DENSE_NS_QUICK, KNN_NS_QUICK, KNN_KS_QUICK, 1, "quick")
+    elif args.mid:
+        dense_ns, knn_ns, knn_ks, runs, tag = (DENSE_NS_MID, KNN_NS_MID, KNN_KS_MID, 1, "mid")
+    else:
+        dense_ns, knn_ns, knn_ks, runs, tag = (DENSE_NS_FULL, KNN_NS_FULL, KNN_KS_FULL, 5, "full")
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    suffix   = f"_{tag}" if tag != "full" else ""
+    out_path = RESULTS_DIR / f"bench{suffix}.json"
+
+    cells = []
+    cells += run_dense_cold(dense_ns, runs)
+    cells += run_sparse_cold(knn_ns, knn_ks, runs)
+    cells += run_sparse_warm(knn_ns, knn_ks, runs)
+
+    out = {"meta": _meta(tag), "cells": cells, "fits": {}}
+    out_path.write_text(json.dumps(out, indent=2))
+    print(f"[bench] wrote {out_path} ({len(cells)} cells)", flush=True)
+
+
+if __name__ == "__main__":
+    main()

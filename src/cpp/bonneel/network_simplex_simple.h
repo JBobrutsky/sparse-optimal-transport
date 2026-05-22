@@ -47,6 +47,8 @@
 #include <vector>
 #include <limits>
 #include <algorithm>
+#include <numeric>
+#include <stack>
 #ifdef HASHMAP
 #include <unordered_map>
 #else

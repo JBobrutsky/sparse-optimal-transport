@@ -113,7 +113,7 @@ def test_bench_quick_smoke(tmp_path):
 
 
 @pytest.mark.timeout(600)
-def test_bench_quick_fits_structure(tmp_path):
+def test_bench_quick_fits_structure():
     """After bench.py --quick, the fits key is valid (may be empty for quick sweep)."""
     import json
     import os
@@ -122,19 +122,21 @@ def test_bench_quick_fits_structure(tmp_path):
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
+    result = subprocess.run(
+        [sys.executable, "benchmarks/bench.py", "--quick"],
+        cwd=str(repo_root), env=env, capture_output=True, text=True, timeout=600,
+    )
+    assert result.returncode == 0, f"bench.py --quick failed:\n{result.stderr}"
     out_path = repo_root / "benchmarks/results/bench_quick.json"
-    if not out_path.exists():
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
-        subprocess.run(
-            [sys.executable, "benchmarks/bench.py", "--quick"],
-            cwd=str(repo_root), env=env, check=True, timeout=600,
-        )
     data = json.loads(out_path.read_text())
     assert isinstance(data["fits"], dict)
     for key, val in data["fits"].items():
         assert "a" in val and "b" in val and "r2" in val, f"bad fit for {key}: {val}"
-        assert 0.0 <= val["r2"] <= 1.0
+        if key.endswith("_sparse"):
+            assert "c" in val, f"sparse fit missing 'c': {key}: {val}"
+        assert val["r2"] >= 0.95, f"fit r2 below threshold: {key}: {val['r2']}"
     for c in data["cells"]:
         assert "extrapolated" in c
         assert isinstance(c["extrapolated"], bool)

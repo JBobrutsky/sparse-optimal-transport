@@ -266,8 +266,6 @@ def _compute_fits(cells):
 
 
 def _add_extrapolated_cells(cells, fits, dense_ns, knn_ns, knn_ks):
-    from benchmarks.solvers import POT_MAX_N, ORTOOLS_MAX_N
-
     extra = []
 
     # Dense: add extrapolated cells for n > solver cutoff.
@@ -277,9 +275,9 @@ def _add_extrapolated_cells(cells, fits, dense_ns, knn_ns, knn_ks):
         if c["scenario"] == "dense_cold" and not c["extrapolated"]
     }
     for n in dense_ns:
-        for solver, cutoff, fit_key in [
-            ("pot",     POT_MAX_N,     "pot_dense"),
-            ("ortools", ORTOOLS_MAX_N, "ortools_dense"),
+        for solver, fit_key in [
+            ("pot",     "pot_dense"),
+            ("ortools", "ortools_dense"),
         ]:
             if (solver, n) in measured_dense:
                 continue
@@ -305,9 +303,9 @@ def _add_extrapolated_cells(cells, fits, dense_ns, knn_ns, knn_ks):
         for k in knn_ks:
             if k > n:
                 continue
-            for solver, cutoff, fit_key in [
-                ("pot",     POT_MAX_N,     "pot_sparse"),
-                ("ortools", ORTOOLS_MAX_N, "ortools_sparse"),
+            for solver, fit_key in [
+                ("pot",     "pot_sparse"),
+                ("ortools", "ortools_sparse"),
             ]:
                 if (solver, n, k) in measured_sparse:
                     continue

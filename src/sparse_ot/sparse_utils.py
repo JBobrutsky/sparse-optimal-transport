@@ -86,7 +86,22 @@ def bonneel_sparse_solve_warm(a, b, row_ptr, col_idx, costs, n, m,
         )
         n_degenerate = 0  # treat as non-degenerate; flow sort handles quality
 
-    # 2. Mode selection.
+    # 2. Primal feasibility check: Mode B requires G_warm to satisfy marginals.
+    # If G_warm was computed on an infeasible sub-graph (not enough capacity),
+    # its flows violate supply balance. warmBasisInit injects those flows directly
+    # into the spanning tree; start() then converges to a wrong dual-feasible
+    # point because it assumes the starting tree is primal feasible.
+    if n_degenerate <= _DEGENERATE_WARN_THRESHOLD * n_basic:
+        row_sums = np.asarray(G_warm.sum(axis=1)).ravel()
+        col_sums = np.asarray(G_warm.sum(axis=0)).ravel()
+        max_violation = max(
+            float(np.abs(row_sums - np.asarray(a)).max()),
+            float(np.abs(col_sums - np.asarray(b)).max()),
+        )
+        if max_violation > _MARGINAL_TOL:
+            n_degenerate = int(_DEGENERATE_WARN_THRESHOLD * n_basic) + 1
+
+    # 3. Mode selection.
     if n_degenerate > _DEGENERATE_WARN_THRESHOLD * n_basic:
         warnings.warn(
             f"warm_start G has {n_degenerate} zero-flow basic arcs "

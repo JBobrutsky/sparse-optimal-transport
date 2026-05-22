@@ -414,3 +414,113 @@ def test_warm_start_dense_G_matches_csr_G():
     assert info_csr["cost"] == info_dense["cost"]
     assert info_csr["refine"]["warm_start_optimal"] == \
         info_dense["refine"]["warm_start_optimal"]
+
+
+def test_refine_non_optimal_warm_basis_used():
+    """Non-optimal branch: warm_basis_used=True when G_warm is non-degenerate.
+
+    We solve on M6 with perturbed (non-uniform) marginals to get a full-rank
+    spanning-tree basis G6, then refine on M10 using deliberately wrong duals
+    (zeros) so the reduced-cost check fails and the non-optimal branch fires.
+    The G6 plan is still primal-feasible for (a, b), so bonneel_sparse_solve_warm
+    receives a non-degenerate warm basis and Mode B should fire.
+    """
+    n = 40
+    half = 3
+    rows, cols, costs_list = [], [], []
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, lo + 6)
+        lo = max(0, hi - 6)
+        for j in range(lo, hi):
+            rows.append(i)
+            cols.append(j)
+            costs_list.append(float((i - j) ** 2) + 0.01)
+    M6 = scipy.sparse.csr_matrix((costs_list, (rows, cols)), shape=(n, n))
+
+    half2 = 5
+    rows2, cols2, costs2_list = [], [], []
+    for i in range(n):
+        lo = max(0, i - half2)
+        hi = min(n, lo + 10)
+        lo = max(0, hi - 10)
+        for j in range(lo, hi):
+            rows2.append(i)
+            cols2.append(j)
+            costs2_list.append(float((i - j) ** 2) + 0.01)
+    M10 = scipy.sparse.csr_matrix((costs2_list, (rows2, cols2)), shape=(n, n))
+
+    # Perturbed marginals to avoid degenerate BFS (uniform marginals trigger Mode C)
+    rng = np.random.default_rng(99)
+    a = np.ones(n) / n + rng.uniform(-0.001, 0.001, n)
+    a = np.abs(a)
+    a /= a.sum()
+    b = np.ones(n) / n + rng.uniform(-0.001, 0.001, n)
+    b = np.abs(b)
+    b /= b.sum()
+
+    from sparse_ot import emd
+    G6, info6 = emd(a, b, M6, log=True)
+    G10_cold, info10_cold = emd(a, b, M10, log=True)
+
+    # Use zero duals — guaranteed to violate reduced costs on M10 because
+    # rc = M10[i,j] - 0 - 0 = M10[i,j] > 0 always ... except M10 has
+    # zero-cost diagonal entries ((i-j)^2+0.01 > 0 always), so all rc >= 0.01 > 0.
+    # Instead use u = max(M10)/2 to force negative reduced costs.
+    u_bad = np.full(n, float(M10.data.max()) / 2.0)
+    v_bad = np.full(n, float(M10.data.max()) / 2.0)
+
+    import warnings
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        G10_warm, info10_warm = emd(a, b, M10, warm_start=(G6, u_bad, v_bad), log=True)
+
+    assert abs(info10_warm["cost"] - info10_cold["cost"]) < 1e-9
+    refine = info10_warm["refine"]
+    assert refine["warm_start_optimal"] is False
+    assert refine["warm_basis_used"] is True  # non-degenerate G6
+
+
+def test_refine_non_optimal_mode_c_fallback():
+    """Non-optimal branch: warm_basis_used=False when G_warm is degenerate.
+
+    We construct a degenerate G_warm with only 1 arc and pair it with bad
+    duals (large offsets that make every reduced cost negative) so the
+    reduced-cost check fails and the non-optimal branch fires.  With only 1
+    arc in G_warm (far below the 5% degeneracy threshold), Mode C must fire.
+    """
+    import warnings
+    n = 30
+    rows, cols, costs_list = [], [], []
+    for i in range(n):
+        for j in range(max(0, i - 2), min(n, i + 3)):
+            rows.append(i)
+            cols.append(j)
+            costs_list.append(float((i - j) ** 2) + 0.1)
+    M = scipy.sparse.csr_matrix((costs_list, (rows, cols)), shape=(n, n))
+    a = np.ones(n) / n
+    b = np.ones(n) / n
+
+    from sparse_ot import emd
+    G_cold, info = emd(a, b, M, log=True)
+    cold_cost = info["cost"]
+
+    # Construct degenerate G_warm: keep only 1 arc (far below 5% of n+m-1)
+    coo = G_cold.tocoo()
+    idx = np.argmax(coo.data)
+    G_deg = scipy.sparse.csr_matrix(
+        ([coo.data[idx]], ([coo.row[idx]], [coo.col[idx]])), shape=M.shape
+    )
+
+    # Use bad duals that force the reduced-cost check to fail (non-optimal branch).
+    # Large u+v makes rc = M[i,j] - u[i] - v[j] < 0 for every edge.
+    u_bad = np.full(n, float(M.data.max()) + 1.0)
+    v_bad = np.zeros(n)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        G_warm, info_warm = emd(a, b, M, warm_start=(G_deg, u_bad, v_bad), log=True)
+    assert abs(info_warm["cost"] - cold_cost) < 1e-9
+    refine = info_warm["refine"]
+    assert refine["warm_basis_used"] is False
+    assert any("zero-flow basic arcs" in str(x.message) for x in w)

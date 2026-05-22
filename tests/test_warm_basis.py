@@ -1,5 +1,4 @@
 """Tests for warm-started network simplex entry points."""
-import copy
 import numpy as np
 import scipy.sparse
 
@@ -168,17 +167,15 @@ def test_warm_basis_non_basic_G_warns_and_correct():
     cold_cost = info["cost"]
 
     coo = G_cold.tocoo()
-    extra_r = coo.row[0]; extra_c = (coo.col[0] + 1) % n
-    if M[extra_r, extra_c] > 0:
-        G_nonbasic = scipy.sparse.csr_matrix(
-            (np.append(coo.data, 1e-15),
-             (np.append(coo.row, extra_r), np.append(coo.col, extra_c))),
-            shape=M.shape
-        )
-    else:
-        G_nonbasic = G_cold
-
-    # Evaluate nnz BEFORE calling bonneel_sparse_solve_warm (which may eliminate zeros)
+    # Pick a deterministic extra arc: row=1, col=2 is always in the k=8 band for n=30.
+    extra_r, extra_c = 1, 2
+    assert M[extra_r, extra_c] > 0, "extra arc not in M support — fix test setup"
+    G_nonbasic = scipy.sparse.csr_matrix(
+        (np.append(coo.data, 1e-15),
+         (np.append(coo.row, extra_r), np.append(coo.col, extra_c))),
+        shape=M.shape,
+    )
+    # nnz before solver (which calls eliminate_zeros internally)
     g_nonbasic_nnz = G_nonbasic.nnz
 
     row_ptr, col_idx, costs, nn, mm, _ = to_csr(M, 0.0)

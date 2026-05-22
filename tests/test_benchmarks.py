@@ -227,3 +227,63 @@ def test_generator_produces_feasible_instance(n, k):
     check_feasibility(a, b, row_ptr, col_idx)
 
 
+def test_warm_expand_marginals_feasible_on_warm_support():
+    """w_plan_warm satisfies a, b exactly; M_warm support ⊂ M_full support."""
+    import numpy as np
+    from benchmarks.problems import generate_knn_grid_warm_expand
+
+    a, b, M_warm, M_full, w_plan_warm = generate_knn_grid_warm_expand(
+        n=200, k_warm=8, k_full=32, seed=0,
+    )
+    assert M_warm.shape == M_full.shape == (200, 200)
+    # Witness plan satisfies marginals.
+    rs = np.asarray(w_plan_warm.sum(axis=1)).ravel()
+    cs = np.asarray(w_plan_warm.sum(axis=0)).ravel()
+    assert np.allclose(rs, a, atol=1e-12)
+    assert np.allclose(cs, b, atol=1e-12)
+    # M_warm support is a strict subset of M_full support.
+    warm_pairs = {(i, j) for i, j in zip(*M_warm.nonzero())}
+    full_pairs = {(i, j) for i, j in zip(*M_full.nonzero())}
+    assert warm_pairs < full_pairs
+
+
+def test_warm_expand_phase1_no_marginal_warning():
+    """Solving on M_warm must not emit the 'marginals not satisfied' warning."""
+    import warnings
+    from benchmarks.problems import generate_knn_grid_warm_expand
+    from sparse_ot import emd
+
+    a, b, M_warm, M_full, _ = generate_knn_grid_warm_expand(
+        n=200, k_warm=8, k_full=32, seed=0,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        emd(a, b, M_warm)
+
+
+def test_warm_perturb_shares_support_different_costs():
+    """M_squared and M_abs have identical CSR structure, distinct cost data."""
+    import numpy as np
+    from benchmarks.problems import generate_knn_grid_warm_perturb
+
+    a, b, M_sq, M_abs, _ = generate_knn_grid_warm_perturb(n=200, k=16, seed=0)
+    assert M_sq.shape == M_abs.shape == (200, 200)
+    assert np.array_equal(M_sq.indptr, M_abs.indptr)
+    assert np.array_equal(M_sq.indices, M_abs.indices)
+    assert not np.allclose(M_sq.data, M_abs.data)
+    # M_sq is squared; M_abs is abs. Diagonal entries (i==j) should be 0 in both.
+    # Off-diagonals: M_sq[i,j] == M_abs[i,j]**2 since M_abs = |i-j|.
+    assert np.allclose(M_sq.data, M_abs.data ** 2)
+
+
+def test_warm_perturb_phase1_feasible():
+    """Solving on M_squared must not emit the marginal warning."""
+    import warnings
+    from benchmarks.problems import generate_knn_grid_warm_perturb
+    from sparse_ot import emd
+
+    a, b, M_sq, M_abs, _ = generate_knn_grid_warm_perturb(n=200, k=16, seed=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        emd(a, b, M_sq)
+        emd(a, b, M_abs)

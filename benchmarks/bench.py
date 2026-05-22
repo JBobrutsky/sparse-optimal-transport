@@ -116,22 +116,18 @@ def run_dense_cold(dense_ns: list[int], runs: int) -> list[dict]:
 
     cells = []
     for n in dense_ns:
-        for _run in range(runs):
+        a, b, M = generate_dense_random_problem(n, seed=0)
+        print(f"  dense_cold n={n}", flush=True)
+        for _ in range(runs):
             gc.collect()
-            a, b, M = generate_dense_random_problem(n, seed=0)
-            print(f"  dense_cold n={n}", flush=True)
-
-            res = solve_sparse_ot(a, b, M)
-            cells.append(_cell("dense_cold", n, None, "sparse_ot", None, res))
-
-            res = solve_pot(a, b, M)
-            if res is not None:
-                cells.append(_cell("dense_cold", n, None, "pot", None, res))
-
-            res = solve_ortools(a, b, M)
-            if res is not None:
-                cells.append(_cell("dense_cold", n, None, "ortools", None, res))
-
+            r = solve_sparse_ot(a, b, M)
+            cells.append(_cell("dense_cold", n, None, "sparse_ot", None, r))
+            r = solve_pot(a, b, M)
+            if r is not None:
+                cells.append(_cell("dense_cold", n, None, "pot", None, r))
+            r = solve_ortools(a, b, M)
+            if r is not None:
+                cells.append(_cell("dense_cold", n, None, "ortools", None, r))
     return cells
 
 
@@ -145,23 +141,19 @@ def run_sparse_cold(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dic
         for k in knn_ks:
             if k > n:
                 continue
-            for _run in range(runs):
+            a, b, M, _ = generate_knn_grid_problem(n, k, seed=0)
+            M = M.tocsr()
+            print(f"  sparse_cold n={n} k={k} nnz={M.nnz}", flush=True)
+            for _ in range(runs):
                 gc.collect()
-                a, b, M, _ = generate_knn_grid_problem(n, k, seed=0)
-                M = M.tocsr()
-                print(f"  sparse_cold n={n} k={k} nnz={M.nnz}", flush=True)
-
-                res = solve_sparse_ot(a, b, M)
-                cells.append(_cell("sparse_cold", n, k, "sparse_ot", None, res))
-
-                res = solve_pot(a, b, M)
-                if res is not None:
-                    cells.append(_cell("sparse_cold", n, k, "pot", None, res))
-
-                res = solve_ortools(a, b, M)
-                if res is not None:
-                    cells.append(_cell("sparse_cold", n, k, "ortools", None, res))
-
+                r = solve_sparse_ot(a, b, M)
+                cells.append(_cell("sparse_cold", n, k, "sparse_ot", None, r))
+                r = solve_pot(a, b, M)
+                if r is not None:
+                    cells.append(_cell("sparse_cold", n, k, "pot", None, r))
+                r = solve_ortools(a, b, M)
+                if r is not None:
+                    cells.append(_cell("sparse_cold", n, k, "ortools", None, r))
     return cells
 
 
@@ -178,18 +170,18 @@ def run_sparse_warm(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dic
         for k in knn_ks:
             if k > n:
                 continue
+            a, b, M_full, _ = generate_knn_grid_problem(n, k, seed=0)
+            M_full = M_full.tocsr()
             for warm_ratio in WARM_RATIOS:
-                for _run in range(runs):
+                k_warm = max(2, int(round(k * warm_ratio)))
+                M_warm = _restrict_to_k(M_full, k_warm)
+                print(f"  sparse_warm n={n} k={k} warm_ratio={warm_ratio}", flush=True)
+
+                # Phase 1 (NOT timed for the cell); seed=0 always gives same result
+                G_warm, info_warm = emd(a, b, M_warm, log=True)
+
+                for _ in range(runs):
                     gc.collect()
-                    a, b, M_full, _ = generate_knn_grid_problem(n, k, seed=0)
-                    M_full = M_full.tocsr()
-                    k_warm = max(2, int(round(k * warm_ratio)))
-                    M_warm = _restrict_to_k(M_full, k_warm)
-                    print(f"  sparse_warm n={n} k={k} warm_ratio={warm_ratio}", flush=True)
-
-                    # Phase 1 (NOT timed for the cell)
-                    G_warm, info_warm = emd(a, b, M_warm, log=True)
-
                     # Phase 2 (timed)
                     res = solve_sparse_ot(a, b, M_full, warm=(G_warm, info_warm))
                     cells.append(_cell("sparse_warm", n, k, "sparse_ot", warm_ratio, res))
@@ -224,7 +216,7 @@ def main():
     cells += run_sparse_warm(knn_ns, knn_ks, runs)
 
     out = {"meta": _meta(tag), "cells": cells, "fits": {}}
-    out_path.write_text(json.dumps(out, indent=2))
+    out_path.write_text(json.dumps(out, indent=2) + "\n")
     print(f"[bench] wrote {out_path} ({len(cells)} cells)", flush=True)
 
 

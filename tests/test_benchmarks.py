@@ -98,6 +98,7 @@ def test_bench_quick_smoke(tmp_path):
     scenarios = {c["scenario"] for c in data["cells"]}
     assert "dense_cold" in scenarios
     assert "sparse_cold" in scenarios
+    assert "sparse_warm" in scenarios
 
     sparse_ot_cells = [c for c in data["cells"] if c["solver"] == "sparse_ot"]
     assert len(sparse_ot_cells) > 0

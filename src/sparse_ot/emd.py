@@ -73,6 +73,16 @@ def emd(a, b, M, numItermax=None, log=False, center_dual=True,
             raise ValueError(
                 f"M must have shape ({len(a)}, {len(b)}), got ({n}, {m})"
             )
+        density = k / (n * m) if n * m > 0 else 0.0
+        if density > 0.5:
+            warnings.warn(
+                f"M is CSR but {density:.0%} dense ({k} nnz of {n*m} entries); "
+                f"the sparse path pays CSR indirection overhead with no "
+                f"sparsity benefit. Pass M.toarray() to use the dense "
+                f"Bonneel path for faster solves.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         check_feasibility(a, b, row_ptr, col_idx)
         G, u, v = bonneel_sparse_solve(a, b, row_ptr, col_idx, costs, n, m, numItermax)
         M_for_cost = M

@@ -127,6 +127,44 @@ def test_emd_raises_on_infeasible_sparse_support():
         emd(a, b, M)
 
 
+def test_emd_warns_on_near_dense_csr():
+    """CSR M with density > 0.5 should warn and suggest M.toarray()."""
+    import numpy as np
+    import scipy.sparse
+    import pytest
+    from sparse_ot import emd
+
+    rng = np.random.default_rng(0)
+    n = 20
+    mask = rng.random((n, n)) < 0.8
+    M_dense = rng.uniform(0.0, 1.0, size=(n, n))
+    M_dense[~mask] = 0.0
+    M_csr = scipy.sparse.csr_matrix(M_dense)
+    assert M_csr.nnz / (n * n) > 0.5
+
+    a = np.full(n, 1.0 / n)
+    b = np.full(n, 1.0 / n)
+
+    with pytest.warns(RuntimeWarning, match="dense"):
+        emd(a, b, M_csr)
+
+
+def test_emd_does_not_warn_on_sparse_csr():
+    """CSR M with density <= 0.5 should not emit the density warning."""
+    import warnings
+    import numpy as np
+    from benchmarks.problems import generate_knn_grid_problem
+    from sparse_ot import emd
+
+    a, b, M, _ = generate_knn_grid_problem(n=64, k=4, seed=0)
+    M = M.tocsr()
+    assert M.nnz / (M.shape[0] * M.shape[1]) <= 0.5
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        emd(a, b, M)
+
+
 def test_emd_skips_check_for_dense_M():
     # Dense M (numpy ndarray) — feasibility check is skipped for dense input.
     # Use a fully non-zero cost matrix so no edges are dropped by to_csr.

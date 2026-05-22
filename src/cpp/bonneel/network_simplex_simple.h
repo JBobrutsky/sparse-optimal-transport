@@ -936,11 +936,14 @@ namespace lemon {
 				int rs = uf_find(s), rt = uf_find(t);
 				if (rs == rt) continue;             // would form a cycle — skip
 				uf[rs] = rt;
-				tree_arcs.push_back(arc_ids[k]);
+				// arc_ids[k] is a CSR position; convert to internal storage index
+				// via getArcID (which applies the arc_mixing permutation when enabled).
+				ArcsType internal_id = getArcID(GR::arcFromId(arc_ids[k]));
+				tree_arcs.push_back(internal_id);
 				tree_src_nid.push_back(s);
 				tree_tgt_nid.push_back(t);
-				_state[arc_ids[k]] = STATE_TREE;
-				_flow[arc_ids[k]]  = static_cast<Value>(warm_flow[k]);
+				_state[internal_id] = STATE_TREE;
+				_flow[internal_id]  = static_cast<Value>(warm_flow[k]);
 			}
 
 			// --- Phase 2: Attach unspanned nodes to _root via artificial arcs ---

@@ -192,6 +192,13 @@ def test_fig_warm_speedup_skips_k_with_no_reduction(tmp_path):
         {"scenario": "sparse_warm", "solver": "sparse_ot", "n": 1000, "k": 32,
          "warm_ratio": 0.25, "wall_s": 0.20, "peak_mb": 0.0, "cost": 0.0,
          "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
+        # Another valid candidate at same ratio (k_warm=2 for k=8, ratio 0.25)
+        {"scenario": "sparse_cold", "solver": "sparse_ot", "n": 1000, "k": 8,
+         "warm_ratio": None, "wall_s": 0.30, "peak_mb": 0.0, "cost": 0.0,
+         "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
+        {"scenario": "sparse_warm", "solver": "sparse_ot", "n": 1000, "k": 8,
+         "warm_ratio": 0.25, "wall_s": 0.25, "peak_mb": 0.0, "cost": 0.0,
+         "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
     ]
     result = fig_warm_speedup(cells, tmp_path)
     assert result == (32, 0.25), f"expected (32, 0.25), got {result}"

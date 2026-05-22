@@ -237,10 +237,10 @@ def fig_warm_speedup(cells: list, figures_dir: Path):
         _placeholder(out_path, "No (k, warm_ratio) with k_warm < k and matching cold cell")
         return None
 
-    # d) Pick smallest k_warm/k ratio; tiebreak smallest k.
+    # d) Pick smallest k_warm/k ratio; tiebreak largest k.
     k_plot, ratio_plot = min(
         candidates,
-        key=lambda kw: (max(2, int(round(kw[0] * kw[1]))) / kw[0], kw[0]),
+        key=lambda kw: (max(2, int(round(kw[0] * kw[1]))) / kw[0], -kw[0]),
     )
 
     # e) Build cold_pts and warm_pts.

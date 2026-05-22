@@ -26,7 +26,7 @@ Do **not** use this path when:
 ## Regime of optimality
 
 Empirically, on the seeded `knn-grid` problems (see
-`benchmarks/bench_refine.py`):
+`benchmarks/bench.py`, `sparse_warm` scenario):
 
 * When `S_warm = E_full` (the warm-start ran on the *same* support as
   `M_full`): refinement is essentially the verifier pass — sub-millisecond

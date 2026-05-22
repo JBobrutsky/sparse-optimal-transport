@@ -40,7 +40,7 @@ This path beats a cold solve when:
   to the optimum, the cold re-solve costs roughly the same as cold and the
   verifier is pure overhead.
 
-See ``benchmarks/bench_refine.py`` for measured numbers and
+See ``benchmarks/bench.py`` (``sparse_warm`` scenario) for measured numbers and
 ``docs/refinement.md`` for a worked example.
 
 References

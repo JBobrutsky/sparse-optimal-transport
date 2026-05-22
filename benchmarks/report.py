@@ -257,6 +257,7 @@ def fig_accuracy(cells: list, figures_dir: Path) -> None:
         ax.scatter(xs, ys, c=colors, alpha=0.7, s=40)
         ax.axhline(1e-10, color="k", linestyle="--", label="1e-10 reference")
     else:
+        plt.close(fig)
         _placeholder(out_path, "No common (scenario, n, k) for sparse_ot and pot costs")
         return
 

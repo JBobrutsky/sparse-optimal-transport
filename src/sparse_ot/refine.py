@@ -68,7 +68,7 @@ import scipy.sparse
 import warnings
 
 from sparse_ot.feasibility import check_feasibility
-from sparse_ot.sparse_utils import to_csr, bonneel_sparse_solve, _MARGINAL_TOL
+from sparse_ot.sparse_utils import to_csr, _MARGINAL_TOL
 
 
 def _parse_warm_start(warm_start, n, m):
@@ -257,18 +257,17 @@ def refine_from_warm_start(a, b, M_csr, warm_start, *,
             "edges_added": 0,
         }
     else:
-        # v1 fallback: cold re-solve on M_full. The C++ pybind binding does
-        # not yet accept (u0, v0) for true basis warm-start; see spec
-        # "Pybind / C++ extension" and "Open questions". The verifier above
-        # is still useful -- it confirms when no re-solve is needed at all.
-        # The cold re-solve produces the optimum on (a, b, M_full).
-        G, u, v = bonneel_sparse_solve(a, b, row_ptr, col_idx, costs, n, m, numItermax)
+        from sparse_ot.sparse_utils import bonneel_sparse_solve_warm
+        G, u, v, warm_basis_used = bonneel_sparse_solve_warm(
+            a, b, row_ptr, col_idx, costs, n, m, G_warm, u, v, numItermax
+        )
         edges_added = int(G.nnz - G_warm.nnz)
         refine_info = {
             "warm_start_optimal": False,
             "num_passes": 1,
             "initial_min_reduced_cost": min_rc,
             "edges_added": max(edges_added, 0),
+            "warm_basis_used": warm_basis_used,
         }
 
     if center_dual:

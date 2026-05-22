@@ -1557,6 +1557,60 @@ namespace lemon {
 			return start<BlockSearchPivotRule>();
 		}
 
+		// Execute only the main pivot loop (no initialPivots heuristic).
+		// Used by runWarmPotentials Phase 2, where the spanning tree is already
+		// primal-feasible and we just need to restore dual feasibility from
+		// the newly overridden warm potentials.
+		ProblemType startPivotLoopOnly() {
+			return startPivotLoopOnly<BlockSearchPivotRule>();
+		}
+
+		template <typename PivotRuleImpl>
+		ProblemType startPivotLoopOnly() {
+			PivotRuleImpl pivot(*this);
+			size_t iter_number = 0;
+			while (pivot.findEnteringArc()) {
+				if ((iter_number <= max_iter && max_iter > 0) || max_iter <= 0) {
+					iter_number++;
+					findJoinNode();
+					bool change = findLeavingArc();
+					if (delta >= MAX) return UNBOUNDED;
+					changeFlow(change);
+					if (change) {
+						updateTreeStructure();
+						updatePotential();
+					}
+				} else break;
+			}
+			// Check feasibility (should always pass since Phase 1 cleared artificials)
+			for (ArcsType e = _search_arc_num; e != _all_arc_num; ++e) {
+				if (_flow[e] != 0) return INFEASIBLE;
+			}
+			// Shift potentials to meet GEQ/LEQ optimality conditions
+			if (_sum_supply == 0) {
+				if (_stype == GEQ) {
+					Cost max_pot = -std::numeric_limits<Cost>::max();
+					for (ArcsType i = 0; i != _node_num; ++i) {
+						if (_pi[i] > max_pot) max_pot = _pi[i];
+					}
+					if (max_pot > 0) {
+						for (ArcsType i = 0; i != _node_num; ++i)
+							_pi[i] -= max_pot;
+					}
+				} else {
+					Cost min_pot = std::numeric_limits<Cost>::max();
+					for (ArcsType i = 0; i != _node_num; ++i) {
+						if (_pi[i] < min_pot) min_pot = _pi[i];
+					}
+					if (min_pot < 0) {
+						for (ArcsType i = 0; i != _node_num; ++i)
+							_pi[i] -= min_pot;
+					}
+				}
+			}
+			return OPTIMAL;
+		}
+
 		template <typename PivotRuleImpl>
 		ProblemType start() {
 			PivotRuleImpl pivot(*this);

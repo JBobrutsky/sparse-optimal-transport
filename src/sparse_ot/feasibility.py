@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import numpy as np
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import connected_components
 
 
 class InfeasibleProblemError(ValueError):
@@ -37,7 +39,9 @@ def check_feasibility(a, b, row_ptr, col_idx, tol: float = 1e-12) -> None:
     unbounded capacity: every connected component of the bipartite support
     graph must have sum(a over its sources) == sum(b over its targets).
 
-    Complexity: O(nnz · α(n+m)) via union-find.
+    Complexity: O(nnz) via scipy.sparse.csgraph.connected_components (a C
+    implementation), plus vectorized numpy aggregation of supply/demand per
+    component. Replaces the previous pure-Python union-find loop.
     """
     a = np.asarray(a, dtype=np.float64)
     b = np.asarray(b, dtype=np.float64)
@@ -45,52 +49,39 @@ def check_feasibility(a, b, row_ptr, col_idx, tol: float = 1e-12) -> None:
     col_idx = np.asarray(col_idx, dtype=np.int32)
     n = a.size
     m = b.size
+    nnz = int(row_ptr[-1]) if row_ptr.size > 0 else 0
 
-    # Union-find over n + m nodes: sources [0..n), targets [n..n+m).
-    parent = np.arange(n + m, dtype=np.int64)
+    # Build bipartite adjacency as a sparse (n+m, n+m) graph.
+    # Source nodes 0..n-1, target nodes n..n+m-1; edge (i, n+j) for each
+    # (i, j) in the support. connected_components(directed=False) treats it
+    # as undirected.
+    if nnz > 0:
+        src = np.repeat(np.arange(n, dtype=np.int32), np.diff(row_ptr))
+        tgt = col_idx + np.int32(n)
+        data = np.ones(nnz, dtype=np.int8)
+        adj = csr_matrix((data, (src, tgt)), shape=(n + m, n + m))
+    else:
+        # Empty graph: every node is its own component.
+        adj = csr_matrix((n + m, n + m), dtype=np.int8)
 
-    def find(x: int) -> int:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return int(x)
+    n_components, labels = connected_components(adj, directed=False)
 
-    def union(x: int, y: int) -> None:
-        rx, ry = find(x), find(y)
-        if rx != ry:
-            parent[rx] = ry
+    # Aggregate supply/demand by component label. bincount is faster than
+    # np.add.at and exact for float64 sums in this size regime.
+    supply_by_comp = np.bincount(labels[:n], weights=a, minlength=n_components)
+    demand_by_comp = np.bincount(labels[n:n + m], weights=b, minlength=n_components)
 
-    for i in range(n):
-        for p in range(int(row_ptr[i]), int(row_ptr[i + 1])):
-            j = int(col_idx[p])
-            union(i, n + j)
+    diff = supply_by_comp - demand_by_comp
+    abs_diff = np.abs(diff)
+    worst_idx = int(np.argmax(abs_diff))
+    worst_imbalance = float(diff[worst_idx])
 
-    comp_supply: dict[int, float] = {}
-    comp_demand: dict[int, float] = {}
-    comp_sources: dict[int, list[int]] = {}
-    comp_targets: dict[int, list[int]] = {}
-    for i in range(n):
-        r = find(i)
-        comp_supply[r] = comp_supply.get(r, 0.0) + float(a[i])
-        comp_sources.setdefault(r, []).append(i)
-    for j in range(m):
-        r = find(n + j)
-        comp_demand[r] = comp_demand.get(r, 0.0) + float(b[j])
-        comp_targets.setdefault(r, []).append(j)
-
-    worst_root = None
-    worst_imbalance = 0.0
-    for r in set(comp_supply) | set(comp_demand):
-        s = comp_supply.get(r, 0.0)
-        d = comp_demand.get(r, 0.0)
-        diff = s - d
-        if abs(diff) > abs(worst_imbalance):
-            worst_imbalance = diff
-            worst_root = r
-
-    if worst_root is not None and abs(worst_imbalance) > tol:
+    if abs(worst_imbalance) > tol:
+        bad_label = worst_idx
+        bad_sources = np.where(labels[:n] == bad_label)[0]
+        bad_targets = np.where(labels[n:n + m] == bad_label)[0]
         raise InfeasibleProblemError(
             imbalance=worst_imbalance,
-            component_sources=comp_sources.get(worst_root, []),
-            component_targets=comp_targets.get(worst_root, []),
+            component_sources=bad_sources.tolist(),
+            component_targets=bad_targets.tolist(),
         )

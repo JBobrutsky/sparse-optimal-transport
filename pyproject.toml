@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "sparse-ot"
-version = "0.1.0"
+version = "0.2.0"
 description = "Sparse optimal transport with drop-in POT API"
 requires-python = ">=3.10"
 license = { text = "MIT" }

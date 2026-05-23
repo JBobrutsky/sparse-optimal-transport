@@ -125,7 +125,7 @@ Pass `numItermax=…` to override.
 
 ## Benchmark results
 
-Numbers from `python benchmarks/bench.py --mid` on an Apple M-series laptop (64 GB).
+Numbers from `python benchmarks/bench.py --mid` on a MacBook Pro (Apple M1 Pro, 10-core, 32 GB).
 Wall times are medians; `~` marks power-law-extrapolated values ($R^2 \geq 0.95$).
 
 ### Dense cold-start

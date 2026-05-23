@@ -43,7 +43,7 @@ The dense path is infeasible on this instance on a typical laptop; the sparse pa
 
 ### Feasibility checking
 
-The sparse path restricts transport to the edges in $M$. Before invoking the solver, `sparse-ot` runs a union-find over the bipartite support graph in $O(k \cdot \alpha(k))$ time. For each connected component, it verifies that the supply from source nodes equals the demand at target nodes within tolerance. If any component is imbalanced, `InfeasibleProblemError` is raised with the violating component's indices and mass imbalance before any solver call is made.
+The sparse path restricts transport to the edges in $M$. Before invoking the solver, `sparse-ot` runs a connected-components pass over the bipartite support graph (via `scipy.sparse.csgraph.connected_components`) in $O(k)$ time. For each connected component, it verifies that the supply from source nodes equals the demand at target nodes within tolerance. If any component is imbalanced, `InfeasibleProblemError` is raised with the violating component's indices and mass imbalance before any solver call is made.
 
 Hall's condition is a necessary and sufficient condition for a feasible flow when all edge capacities are unbounded. The component-balance check is equivalent to Hall's condition in this setting.
 
@@ -70,7 +70,7 @@ Given a prior solve $(G_\text{warm}, u, v)$ on support $S_\text{warm}$ and a ful
 1. **Reduced cost computation** — vectorised over all $\text{nnz}(M_\text{full})$ edges:
    $$r_{ij} = M_{ij} - u_i - v_j$$
 
-2. **Decision** — if $\min_{(i,j) \in E_\text{full}} r_{ij} \geq -\tau$ (where $\tau = 10^{-9} \|M\|_\infty$ by default): the duals $(u, v)$ are feasible on $E_\text{full}$. By LP complementary slackness, $G_\text{warm}$ extended with zeros on $E_\text{full} \setminus S_\text{warm}$ is a global optimum. **Return immediately — no re-solve.**
+2. **Decision** — if $\min_{(i,j) \in E_\text{full}} r_{ij} \geq -\tau$ (where $\tau = 10^{-9} \max(1, \|M\|_\infty)$ by default): the duals $(u, v)$ are feasible on $E_\text{full}$. By LP complementary slackness, $G_\text{warm}$ extended with zeros on $E_\text{full} \setminus S_\text{warm}$ is a global optimum. **Return immediately — no re-solve.**
 
 3. **Fallback** — otherwise, re-solve on $M_\text{full}$ warm-started from $(u, v)$. The returned plan is provably optimal on $(a, b, M_\text{full})$ by LP duality.
 
@@ -86,7 +86,7 @@ Measured speedups at $n = 16{,}000$:
 - **Support expansion** (`warm_ratio = 0.95`, $k_\text{warm} \approx k_\text{full}$): 140–450× over a cold solve on $M_\text{full}$.
 - **Metric change** (L2² → L1, same support): ~23× over a cold L1 solve.
 
-When the warm-start duals are not feasible on $E_\text{full}$, the fallback re-solve is required. In v1 this is a cold re-solve on $M_\text{full}$; see Contribution 3.
+When the warm-start duals are not feasible on $E_\text{full}$, the fallback re-solve is required; see Contribution 3.
 
 ### Chaining
 
@@ -104,9 +104,9 @@ G3, info3 = sot.emd(a, b, M_full,   warm_start=(G2, info2), log=True)
 
 **Background:** Bertsimas & Tsitsiklis, *Introduction to Linear Optimization*, Athena Scientific, 1997. §4 (basis warm-starting and column generation).
 
-When Contribution 2's fallback re-solve fires, the v1 implementation discards the prior spanning tree and restarts from the artificial star, wasting pivots re-discovering what the prior solve already established. This is suboptimal when the warm-start duals are close but not dual-feasible (e.g., same support with a perturbed metric).
+When Contribution 2's fallback re-solve fires, a cold re-solve would discard the prior spanning tree and restart from the artificial star, wasting pivots re-discovering what the prior solve already established. This is suboptimal when the warm-start duals are close but not dual-feasible (e.g., same support with a perturbed metric).
 
-The full-basis warm start (v2, pending merge) replaces the cold re-solve with a spanning tree injection into `NetworkSimplexSimple`:
+The full-basis warm start replaces the cold re-solve with a spanning tree injection into `NetworkSimplexSimple`:
 
 1. Extract a spanning tree of size $n + m - 1$ from $G_\text{warm}$ using union-find, preferring high-flow arcs.
 2. Reconstruct the thread-list arrays (`_thread`, `_parent`, `_pred`, `_forward`, etc.) required by the pivot loop via DFS from the artificial root.
@@ -116,7 +116,7 @@ The full-basis warm start (v2, pending merge) replaces the cold re-solve with a 
 
 Two dispatch modes based on the degeneracy of $G_\text{warm}$:
 - **Mode B (full basis):** used when $G_\text{warm}.\text{nnz} \geq (1 - \delta)(n + m - 1)$ for $\delta = 0.05$. Zero artificial overhead when non-degenerate.
-- **Mode C (potential-only):** used when degeneracy is high. Standard artificial-star initialisation followed by a `_pi` override — fewer pivots than cold but retains artificial arc overhead.
+- **Mode C (cold fallback):** used when degeneracy is high or the warm plan violates marginals. Falls back to a standard cold solve — injecting `_pi` into the artificial-star initialisation breaks dual consistency when the warm arcs are not in the basis, so no potential override is applied.
 
 This change affects only the non-optimal fallback branch and is invisible to the caller. The already-optimal branch (Contribution 2, step 2) is independent and unchanged.
 

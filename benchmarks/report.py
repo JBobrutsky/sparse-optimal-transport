@@ -377,12 +377,19 @@ def fig_accuracy(cells: list, figures_dir: Path) -> None:
 
     xs, ys, colors = [], [], []
     for key in common_keys:
+        scenario, n, k = key
+        # Skip cells where the bench auto-densified the CSR (density k/n > 0.5).
+        # The dense path routes mass through the zero-filled non-edges, solving
+        # a different problem than the sparse solver — the cost comparison is
+        # meaningless there.
+        if scenario != "dense_cold" and k is not None and k / n > 0.5:
+            continue
         co = ot_cost[key]
         cp = pot_cost[key]
         rel_err = abs(co - cp) / max(abs(cp), 1e-30)
-        xs.append(key[1])  # n
+        xs.append(n)
         ys.append(rel_err)
-        colors.append("tab:blue" if key[0] == "dense_cold" else "tab:orange")
+        colors.append("tab:blue" if scenario == "dense_cold" else "tab:orange")
 
     fig, ax = plt.subplots(figsize=(7, 5))
     if xs:
@@ -398,6 +405,10 @@ def fig_accuracy(cells: list, figures_dir: Path) -> None:
     ax.set_xlabel("n")
     ax.set_ylabel("|cost_sparse_ot − cost_pot| / cost_pot")
     ax.set_title("Correctness: sparse-ot vs POT")
+
+    unique_ns = sorted(set(xs))
+    ax.set_xticks(unique_ns)
+    ax.xaxis.set_major_formatter(plt.matplotlib.ticker.ScalarFormatter())
 
     from matplotlib.lines import Line2D
     legend_handles = [

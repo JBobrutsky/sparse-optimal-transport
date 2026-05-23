@@ -211,7 +211,7 @@ def fig_warm_speedup_expand(cells: list, figures_dir: Path):
         if c["scenario"] == "sparse_cold_expand":
             cold_map[(c["n"], c["k"], c.get("warm_ratio"))] = c["wall_s"]
 
-    # b) Collect candidate (k, warm_ratio) where k_warm < k and a cold match exists.
+    # b) Collect candidate (n, k, warm_ratio) triples where k_warm < k and a cold match exists.
     candidates: set[tuple] = set()
     for c in cells:
         if c["extrapolated"] or c["wall_s"] is None or c["solver"] != "sparse_ot":
@@ -230,19 +230,19 @@ def fig_warm_speedup_expand(cells: list, figures_dir: Path):
             continue
         if (n, k, wr) not in cold_map:
             continue
-        candidates.add((k, wr))
+        candidates.add((n, k, wr))
 
     # c) No candidates → placeholder, return None
     if not candidates:
         _placeholder(out_path, "No (k, warm_ratio) with k_warm < k and matching cold cell")
         return None
 
-    # d) Pick k that has the most ratio variants available; tiebreak largest k.
+    # d) Pick k with the most (n, ratio) pairs (most coverage); tiebreak largest k.
     k_counts: dict[int, int] = {}
-    for k, wr in candidates:
+    for n, k, wr in candidates:
         k_counts[k] = k_counts.get(k, 0) + 1
     k_plot = max(k_counts, key=lambda k: (k_counts[k], k))
-    ratios_for_k = sorted(wr for (k, wr) in candidates if k == k_plot)
+    ratios_for_k = sorted({wr for (n, k, wr) in candidates if k == k_plot})
 
     # e) One cold line for k_plot (cold is independent of warm_ratio).
     cold_pts = sorted(

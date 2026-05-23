@@ -52,22 +52,11 @@ def _marginal_errors(G, a, b):
 
 
 def solve_sparse_ot(a, b, M, warm=None) -> SolveResult:
-    """Calls sparse_ot.emd(a, b, M, warm_start=warm, log=True). Always runs.
-
-    If M is a CSR with density > 0.5, converts to a dense ndarray inside the
-    timed region — this matches the advice emd() emits via RuntimeWarning, so
-    the benchmark measures what a correctly-using caller experiences. The
-    conversion only applies on cold solves; warm solves require CSR.
-    """
+    """Calls sparse_ot.emd(a, b, M, warm_start=warm, log=True). Always runs."""
     from sparse_ot import emd
 
     def _run():
-        M_used = M
-        if warm is None and scipy.sparse.issparse(M_used):
-            density = M_used.nnz / (M_used.shape[0] * M_used.shape[1])
-            if density > 0.5:
-                M_used = M_used.toarray()
-        return emd(a, b, M_used, warm_start=warm, log=True)
+        return emd(a, b, M, warm_start=warm, log=True)
 
     (G, info), wall_s, peak_mb = _measure(_run)
     cost = info["cost"]

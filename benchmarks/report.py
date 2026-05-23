@@ -359,10 +359,12 @@ def fig_warm_speedup_perturb(cells: list, figures_dir: Path):
 # ---------------------------------------------------------------------------
 
 def fig_accuracy(cells: list, figures_dir: Path) -> None:
+    """Relative cost error: sparse-ot vs POT (dense) and vs OR-Tools (sparse)."""
     out_path = figures_dir / "accuracy.png"
 
     ot_cost: dict[tuple, float] = {}
     pot_cost: dict[tuple, float] = {}
+    ortools_cost: dict[tuple, float] = {}
 
     for c in cells:
         if c["extrapolated"] or c["cost"] is None:
@@ -372,39 +374,53 @@ def fig_accuracy(cells: list, figures_dir: Path) -> None:
             ot_cost[key] = c["cost"]
         elif c["solver"] == "pot":
             pot_cost[key] = c["cost"]
-
-    common_keys = sorted(set(ot_cost) & set(pot_cost))
+        elif c["solver"] == "ortools":
+            ortools_cost[key] = c["cost"]
 
     xs, ys, colors = [], [], []
-    for key in common_keys:
-        scenario, n, k = key
-        # Skip cells where the bench auto-densified the CSR (density k/n > 0.5).
-        # The dense path routes mass through the zero-filled non-edges, solving
-        # a different problem than the sparse solver — the cost comparison is
-        # meaningless there.
-        if scenario != "dense_cold" and k is not None and k / n > 0.5:
+
+    # sparse-ot vs OR-Tools: dense cold.
+    for key in sorted(set(ot_cost) & set(ortools_cost)):
+        if key[0] != "dense_cold":
             continue
-        co = ot_cost[key]
-        cp = pot_cost[key]
-        rel_err = abs(co - cp) / max(abs(cp), 1e-30)
-        xs.append(n)
+        rel_err = abs(ot_cost[key] - ortools_cost[key]) / max(abs(ortools_cost[key]), 1e-30)
+        xs.append(key[1])
         ys.append(rel_err)
-        colors.append("tab:blue" if scenario == "dense_cold" else "tab:orange")
+        colors.append("tab:blue")
+
+    # sparse-ot vs OR-Tools: sparse cold.
+    for key in sorted(set(ot_cost) & set(ortools_cost)):
+        if key[0] != "sparse_cold":
+            continue
+        rel_err = abs(ot_cost[key] - ortools_cost[key]) / max(abs(ortools_cost[key]), 1e-30)
+        xs.append(key[1])
+        ys.append(rel_err)
+        colors.append("tab:orange")
+
+    # POT vs OR-Tools: dense cold only.
+    for key in sorted(set(pot_cost) & set(ortools_cost)):
+        if key[0] != "dense_cold":
+            continue
+        rel_err = abs(pot_cost[key] - ortools_cost[key]) / max(abs(ortools_cost[key]), 1e-30)
+        xs.append(key[1])
+        ys.append(rel_err)
+        colors.append("tab:green")
 
     fig, ax = plt.subplots(figsize=(7, 5))
     if xs:
         ax.scatter(xs, ys, c=colors, alpha=0.7, s=40)
-        ax.axhline(1e-10, color="k", linestyle="--", label="1e-10 reference")
+        ax.axhline(1e-10, color="k", linestyle="--")
+        ax.axhline(1e-6, color="grey", linestyle=":", label="1e-6 OR-Tools int rounding")
     else:
         plt.close(fig)
-        _placeholder(out_path, "No common (scenario, n, k) for sparse_ot and pot costs")
+        _placeholder(out_path, "No cells for accuracy comparison")
         return
 
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("n")
-    ax.set_ylabel("|cost_sparse_ot − cost_pot| / cost_pot")
-    ax.set_title("Correctness: sparse-ot vs POT")
+    ax.set_ylabel("relative cost error vs OR-Tools")
+    ax.set_title("Correctness (reference: OR-Tools)")
 
     unique_ns = sorted(set(xs))
     ax.set_xticks(unique_ns)
@@ -413,10 +429,13 @@ def fig_accuracy(cells: list, figures_dir: Path) -> None:
     from matplotlib.lines import Line2D
     legend_handles = [
         Line2D([0], [0], marker="o", color="w", markerfacecolor="tab:blue",
-               markersize=8, label="dense cold"),
+               markersize=8, label="sparse-ot, dense cold"),
         Line2D([0], [0], marker="o", color="w", markerfacecolor="tab:orange",
-               markersize=8, label="sparse cold"),
+               markersize=8, label="sparse-ot, sparse cold"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="tab:green",
+               markersize=8, label="POT, dense cold"),
         Line2D([0], [0], color="k", linestyle="--", label="1e-10 reference"),
+        Line2D([0], [0], color="grey", linestyle=":", label="1e-6 OR-Tools int rounding"),
     ]
     ax.legend(handles=legend_handles)
     ax.grid(True, which="both", alpha=0.3)

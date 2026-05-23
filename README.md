@@ -1,6 +1,8 @@
 # sparse-ot
 
 [![CI](https://github.com/JBobrutsky/sparse-optimal-transport/actions/workflows/ci.yml/badge.svg)](https://github.com/JBobrutsky/sparse-optimal-transport/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/sparse-ot)](https://pypi.org/project/sparse-ot/)
+[![Python](https://img.shields.io/pypi/pyversions/sparse-ot)](https://pypi.org/project/sparse-ot/)
 
 `sparse-ot` is a drop-in replacement for [POT](https://github.com/PythonOT/POT)'s `emd` / `emd2`
 that eliminates the $O(nm)$ memory barrier when the cost matrix is sparse.

@@ -314,8 +314,17 @@ def fig_warm_speedup_perturb(cells: list, figures_dir: Path):
         _placeholder(out_path, "No (n, k) common between sparse_cold_abs and sparse_warm_perturb")
         return None
 
-    # Largest k in common.
-    k_plot = max(common_ks)
+    # Pick k with the largest median speedup (cold/warm) across shared n values;
+    # tiebreak by largest k so we show the most interesting problem size.
+    def _median_speedup(k):
+        ratios = [
+            cold_map[(n, k)] / warm_map[(n, k)]
+            for (n, kk) in cold_map
+            if kk == k and (n, k) in warm_map and warm_map[(n, k)] > 0
+        ]
+        return statistics.median(ratios) if ratios else 0.0
+
+    k_plot = max(common_ks, key=lambda k: (_median_speedup(k), k))
 
     cold_pts = sorted((n, t) for (n, k), t in cold_map.items() if k == k_plot)
     warm_pts = sorted((n, t) for (n, k), t in warm_map.items() if k == k_plot)

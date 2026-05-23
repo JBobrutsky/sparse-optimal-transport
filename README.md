@@ -127,11 +127,17 @@ sparse-ot and POT share the same C++ engine (POT vendors Bonneel's network simpl
 
 kNN-grid CSR problems. Heatmap shows log₁₀(sparse-ot / POT) wall time; blue = sparse-ot faster. POT and OR-Tools are measured only for n ≤ 2 000; dashed contour marks the 1× crossover. At n ≥ 4 000 with moderate k, sparse-ot wins by 5–15× on time while using <10 MB vs the O(n²) memory a dense solver would require.
 
-### Warm-start speedup
+### Warm-start speedup — support expansion
 
-![warm speedup](benchmarks/results/figures/warm_speedup.png)
+![warm speedup expand](benchmarks/results/figures/warm_speedup_expand.png)
 
-`warm_ratio=0.25` means the warm solve uses k/4 edges per row; the refinement step completes on the full k-edge support. Wall time shown is the refinement step only (phase 2). The cold baseline comes from the sparse cold-start cells.
+Marginals are built from a k_warm-band support so any restriction to that band is feasible. Phase 1 solves on k_warm edges; Phase 2 refines to the full k_full-band support via `warm_start`. Wall time shown is Phase 2 only. The cold baseline is a fresh solve on the same k_full support. At large n with `warm_ratio = 0.95` (k_warm nearly as large as k_full) the refinement short-circuits the optimality check and returns in milliseconds, giving 140–450× speedup over cold.
+
+### Warm-start speedup — perturbed metric
+
+![warm speedup perturb](benchmarks/results/figures/warm_speedup_perturb.png)
+
+Same k-NN support structure, two different cost functions (L2² and L1). Phase 1 solves L2²; Phase 2 re-solves L1 on the identical support using the L2² dual potentials as a warm start. At n = 16 000 this yields ~23× speedup; the cold baseline is a fresh L1 solve.
 
 ### Correctness
 

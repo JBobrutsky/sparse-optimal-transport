@@ -185,12 +185,14 @@ Raise these constants in `benchmarks/solvers.py` for larger hardware.
 
 ```bash
 python benchmarks/bench.py --quick    # ~30 s (used by CI)
-python benchmarks/bench.py --mid      # ~15 min
+python benchmarks/bench.py --mid      # ~15 min (generates figures committed to repo)
 python benchmarks/bench.py            # full sweep (hours)
-python benchmarks/report.py --quick   # produce figures from bench_quick.json
+python benchmarks/report.py --mid     # produce committed figures from bench_mid.json
+python benchmarks/report.py --quick   # produce figures_quick/ (not committed)
 ```
 
-Results are written to `benchmarks/results/bench_{tag}.json`; figures to `benchmarks/results/figures/`.
+Results are written to `benchmarks/results/bench_{tag}.json`.
+`--mid` figures go to `benchmarks/results/figures/` (committed); other tags write to `figures_{tag}/`.
 
 ## Citing this work
 

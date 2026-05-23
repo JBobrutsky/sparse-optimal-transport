@@ -496,15 +496,18 @@ def main() -> None:
     cells = data["cells"]
     cells = _aggregate(cells)
 
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+    # Non-mid tags write to a separate directory so they can't accidentally
+    # overwrite the committed mid-benchmark figures (which README references).
+    figures_dir = FIGURES_DIR if tag == "mid" else RESULTS_DIR / f"figures_{tag}"
+    figures_dir.mkdir(parents=True, exist_ok=True)
 
-    fig_dense_cold(cells, FIGURES_DIR)
-    fig_sparse_cold(cells, FIGURES_DIR)
-    fig_warm_speedup_expand(cells, FIGURES_DIR)
-    fig_warm_speedup_perturb(cells, FIGURES_DIR)
-    fig_accuracy(cells, FIGURES_DIR)
+    fig_dense_cold(cells, figures_dir)
+    fig_sparse_cold(cells, figures_dir)
+    fig_warm_speedup_expand(cells, figures_dir)
+    fig_warm_speedup_perturb(cells, figures_dir)
+    fig_accuracy(cells, figures_dir)
 
-    print(f"figures in: {FIGURES_DIR}")
+    print(f"figures in: {figures_dir}")
 
     if args.print_tables:
         print_tables(cells)

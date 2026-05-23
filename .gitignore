@@ -23,3 +23,6 @@ Makefile
 
 # macOS
 .DS_Store
+
+# Benchmark figures from non-mid regimes (only figures/ from --mid is committed)
+benchmarks/results/figures_*/

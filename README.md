@@ -2,26 +2,41 @@
 
 [![CI](https://github.com/JBobrutsky/sparse-optimal-transport/actions/workflows/ci.yml/badge.svg)](https://github.com/JBobrutsky/sparse-optimal-transport/actions/workflows/ci.yml)
 
-Drop-in replacement for [POT](https://github.com/PythonOT/POT)'s `emd` /
-`emd2`, with native support for **sparse cost matrices**. One solver
-([Bonneel's network simplex](https://github.com/nbonneel/network_simplex))
-covers both regimes:
+`sparse-ot` is a drop-in replacement for [POT](https://github.com/PythonOT/POT)'s `emd` / `emd2`
+that eliminates the $O(nm)$ memory barrier when the cost matrix is sparse.
+It re-instantiates Bonneel's network simplex [[1]](#references) over a new sparse bipartite digraph,
+keeping the solver's tight constants while reducing memory and per-pivot work from $O(nm)$ to $O(k)$,
+where $k = \text{nnz}(M)$.
+A structure-agnostic warm-start refinement based on Schmitzer [[2]](#references) and Rauch & Zanotti [[3]](#references)
+allows cheap re-solves when the support or metric changes.
 
-- **Dense** `numpy.ndarray` cost matrix → dense plan.
-- **`scipy.sparse` CSR** cost matrix → sparse plan, with memory and per-pivot
-  work both scaling in the number of candidate edges `k` rather than `n × m`.
+See [docs/algorithms.md](docs/algorithms.md) for algorithm details, design rationale, and full references.
+
+## Installation
+
+```bash
+pip install sparse-ot
+```
+
+For development:
+
+```bash
+pip install -e . --no-build-isolation
+```
+
+`pyproject.toml` sets `editable.rebuild = true`, so the C++ extension is rebuilt automatically on the next import after a `src/cpp/` edit.
 
 ## Quickstart
 
 ```python
 import numpy as np, scipy.sparse, sparse_ot as sot
 
-# Dense: identical interface to ot.emd.
-G = sot.emd(a, b, M)
+# Dense: identical interface to ot.emd / ot.emd2.
+G    = sot.emd(a, b, M)
 cost = sot.emd2(a, b, M)
 
-# Sparse: pass a CSR cost matrix. Absent entries are forbidden edges, not
-# zero-cost shortcuts.
+# Sparse: pass a CSR cost matrix.
+# Absent entries are forbidden edges, not zero-cost shortcuts.
 M_csr = scipy.sparse.csr_matrix(...)
 G_csr = sot.emd(a, b, M_csr)
 
@@ -29,78 +44,144 @@ G_csr = sot.emd(a, b, M_csr)
 G, info = sot.emd(a, b, M, log=True)
 ```
 
-The `u` and `v` returned in the log dict are the dual potentials with
-POT's sign convention (`u[i] + v[j] ≤ M[i,j]` at the optimum). With
-`center_dual=True` (default) `u` is shifted to zero mean, preserving
-`u[i] + v[j]` on every edge.
+## Key contributions
 
-## Why sparse?
+### Sparse network simplex
 
-A 10 000 × 10 000 problem with 10 candidate edges per row (k = 100 000):
+The dense path in POT (and the original Bonneel code) instantiates `NetworkSimplexSimple`
+over `FullBipartiteDigraph`, which forces all internal arrays to size $O(nm)$.
+`sparse-ot` provides a new `BipartiteSparseDigraph` backed by CSR arrays that satisfies
+the same LEMON Digraph concept, reducing internal storage and per-pivot work to $O(k)$ —
+with no changes to the solver's pivot logic.
 
-| Solver path        | Memory        | Wall time |
-|--------------------|---------------|-----------|
-| Bonneel-dense      | ≈ 800 MB (cost matrix) | (does not run; OOM at this scale on small machines) |
-| **Bonneel-sparse** | **≈ 6 MB**    | seconds   |
+| Solver path | Memory | Per-pivot work |
+|---|---|---|
+| Bonneel-dense (POT default) | $O(nm)$ | $O(nm)$ |
+| **Bonneel-sparse (sparse-ot)** | **$O(k)$** | **$O(k)$** |
 
-Most real OT problems (k-NN, transformer attention masks, point-cloud
-matching) are intrinsically sparse. Materialising them as dense costs
-matrices is wasteful and can be infeasible. This package gives you
-Bonneel's tight constants without the O(n·m) memory penalty.
+For a $10{,}000 \times 10{,}000$ problem with $k = 100{,}000$ candidate edges:
+≈ 800 MB and infeasible on a laptop vs. ≈ 6 MB and seconds.
 
-## Feasibility on sparse supports
+### Warm-start refinement
 
-When you pass a sparse `M`, the transport plan is restricted to the
-edges you provide. The package checks that the support is connected
-and that supply totals match (`check_feasibility`), but **this does
-not guarantee an LP-feasible plan exists**.
+When you have a solution on a restricted support — e.g., a cheap $k$-NN approximation
+— it can be refined to a global optimum on a richer support without a full cold re-solve.
+The algorithm checks dual feasibility on the extended support in one vectorised pass;
+if the warm-start duals are already feasible, the result is returned immediately
+(zero additional solver calls). Otherwise a re-solve on the full support is performed.
 
-A small support can fail [Hall's condition](https://en.wikipedia.org/wiki/Hall%27s_marriage_theorem):
-some local block of rows `S` may collectively need to move more mass
-than the columns they reach can absorb. For example, a band-7 support
-(each row connects only to its 7 nearest columns) cannot route generic
-Dirichlet marginals at `n = 1000` — the corner rows have nowhere to
-shed their excess.
+```python
+# Phase 1 — cheap solve on a coarse support (k = 8 NN).
+M_coarse = build_knn_cost(points, k=8)
+G_coarse, info = sot.emd(a, b, M_coarse, log=True)
 
-When that happens we don't lie. The solver returns its best-effort
-flow, `info["result_code"] == 0`, and a `RuntimeWarning` fires
-explaining that the marginals weren't met. Compare to POT, which
-silently routes mass through any zero-cost or penalty edge in the
-densified representation and reports `success` with an arbitrary
-cost.
+# Phase 2 — refine to global optimum on a denser support (k = 64).
+M_full = build_knn_cost(points, k=64)
+G_opt, info_opt = sot.emd(a, b, M_full, warm_start=(G_coarse, info), log=True)
 
-In practice: build supports that are slightly denser than your
-marginals strictly require (k-NN with k chosen by validation, plus a
-small slack), or run with very dense support whenever you don't know
-the marginal distribution ahead of time.
-
-## Convergence and the `numItermax` knob
-
-Bonneel's network simplex stops at `numItermax` pivots without raising.
-If the iteration cap is hit before convergence the returned flow can
-violate marginals by orders of magnitude more than machine epsilon. We
-guard against this in two ways:
-
-1. The default `numItermax` is **problem-size-aware**:
-   `min(50M, max(100k, 100·(n + m + k)))`.
-2. After every solve we re-check the marginals. If `max(|G.sum(1) - a|,
-   |G.sum(0) - b|) > 1e-6`, we emit a `RuntimeWarning` and report
-   `result_code = 0` with a diagnostic in `info["warning"]`. No
-   exception is raised, matching POT's behavior.
-
-You can pass `numItermax=…` to override.
-
-## Build and install
-
-```bash
-pip install -e . --no-build-isolation
+print(info_opt["refine"])
+# {'warm_start_optimal': False, 'num_passes': 1,
+#  'initial_min_reduced_cost': -0.014, 'edges_added': 488}
 ```
 
-`pyproject.toml` sets `editable.rebuild = true`, so the pybind11
-extension is rebuilt automatically the next time `sparse_ot` is imported
-after a `src/cpp/` edit.
+Calls chain naturally: the `(G, info)` tuple returned by one solve is passed directly
+as `warm_start` to the next. See [docs/refinement.md](docs/refinement.md) for the
+regime analysis and a worked numerical example.
 
-## Benchmarks
+### Feasibility checking and honest error reporting
+
+Sparse transport restricts mass flow to the edges you provide.
+Before invoking any solver, `sparse-ot` checks that the bipartite support graph
+is balanced in every connected component (necessary and sufficient for a feasible flow).
+Infeasible supports raise `InfeasibleProblemError` with the violating component's
+indices and mass imbalance — rather than silently routing mass through
+penalty edges as a dense reformulation would.
+
+A small support can fail [Hall's condition](https://en.wikipedia.org/wiki/Hall%27s_marriage_theorem):
+if some set of rows collectively needs to move more mass than their reachable columns
+can absorb, no feasible plan exists on that support. Build supports slightly denser
+than your marginals strictly require, or validate with `check_feasibility` before solving.
+
+## Dual potentials
+
+The dual variables $(u, v)$ satisfy $u_i + v_j \leq M_{ij}$ at optimum
+(POT's sign convention). With `center_dual=True` (default) $u$ is shifted to zero mean,
+preserving $u_i + v_j$ on every arc. Pass `log=True` to retrieve them:
+
+```python
+G, info = sot.emd(a, b, M, log=True)
+u, v = info["u"], info["v"]   # dual potentials, same convention as POT
+```
+
+## Convergence and `numItermax`
+
+The default iteration cap is problem-size-aware:
+$\min(5 \times 10^7,\ \max(10^5,\ 100(n + m + k)))$.
+After every solve, marginal violations are checked;
+if they exceed $10^{-6}$, a `RuntimeWarning` is emitted and `result_code = 0` is set.
+Pass `numItermax=…` to override.
+
+## Benchmark results
+
+Numbers from `python benchmarks/bench.py --mid` on an Apple M-series laptop (64 GB).
+Wall times are medians; `~` marks power-law-extrapolated values ($R^2 \geq 0.95$).
+
+### Dense cold-start
+
+![dense cold](benchmarks/results/figures/dense_cold.png)
+
+`sparse-ot` and POT share the same C++ engine.
+The gap at large $n$ is explained by POT's fixed `numItermax = 100,000`,
+which truncates before convergence on large problems while `sparse-ot`'s
+size-aware default does not.
+
+### Sparse cold-start
+
+![sparse cold](benchmarks/results/figures/sparse_cold.png)
+
+kNN-grid CSR problems. Heatmap shows $\log_{10}(\text{sparse-ot} / \text{POT})$ wall time;
+blue = sparse-ot faster. POT and OR-Tools are measured only for $n \leq 2{,}000$;
+dashed contour marks the $1\times$ crossover.
+At $n \geq 4{,}000$ with moderate $k$, sparse-ot wins by 5–15× while using $< 10$ MB
+vs. the $O(n^2)$ memory a dense solver would require.
+
+### Warm-start speedup — support expansion
+
+![warm speedup expand](benchmarks/results/figures/warm_speedup_expand.png)
+
+Phase 1 solves on $k_\text{warm}$ edges; Phase 2 refines to the full $k_\text{full}$-band
+support via `warm_start`. Wall time shown is Phase 2 only.
+At large $n$ with `warm_ratio = 0.95`, the refinement returns in milliseconds:
+140–450× speedup over a cold solve on the same support.
+
+### Warm-start speedup — perturbed metric
+
+![warm speedup perturb](benchmarks/results/figures/warm_speedup_perturb.png)
+
+Phase 1 solves L2²; Phase 2 re-solves L1 on the identical support using the L2² duals
+as a warm start. At $n = 16{,}000$ this yields ~23× speedup over a cold L1 solve.
+
+### Correctness
+
+![accuracy](benchmarks/results/figures/accuracy.png)
+
+All sparse-ot cells agree with POT to better than $10^{-10}$ relative cost error.
+OR-Tools rounds costs to integers (scale factor $10^6$), bounding its agreement at
+$\sim 10^{-6}$. Marginal errors are at machine precision ($\leq 2.5 \times 10^{-16}$)
+across all cells.
+
+## Benchmark memory cutoffs
+
+| Constant | Value | Effect |
+|---|---|---|
+| `POT_MAX_N` | 2 000 | POT skipped when $n > 2{,}000$ |
+| `POT_MAX_NNZ` | 100 000 | POT skipped when nnz $> 10^5$ |
+| `ORTOOLS_MAX_N` | 2 000 | OR-Tools skipped when $n > 2{,}000$ |
+| `ORTOOLS_MAX_NNZ` | 500 000 | OR-Tools skipped when nnz $> 5 \times 10^5$ |
+
+Raise these constants in `benchmarks/solvers.py` for larger hardware.
+
+## Running benchmarks
 
 ```bash
 python benchmarks/bench.py --quick    # ~30 s (used by CI)
@@ -109,114 +190,41 @@ python benchmarks/bench.py            # full sweep (hours)
 python benchmarks/report.py --quick   # produce figures from bench_quick.json
 ```
 
-Results are written to `benchmarks/results/bench_{tag}.json` (flat `cells` list + power-law `fits`). Figures go to `benchmarks/results/figures/`.
+Results are written to `benchmarks/results/bench_{tag}.json`; figures to `benchmarks/results/figures/`.
 
-## Benchmark results
+## Citing this work
 
-Numbers below are from `python benchmarks/bench.py --mid` on an Apple-Silicon laptop (Sonoma, 64 GB). Wall times are median of 1 run. `~` marks power-law-extrapolated competitor wall times (R² ≥ 0.95 required; see `fits` in the JSON for coefficients).
+If you use `sparse-ot` in published work, please cite:
 
-### Dense cold-start
+```bibtex
+@software{sparse_ot,
+  author  = {Bobrutsky-Haim, Jonatan},
+  title   = {sparse-ot: Sparse optimal transport via network simplex},
+  url     = {https://github.com/JBobrutsky/sparse-optimal-transport},
+  year    = {2026},
+}
+```
 
-![dense cold](benchmarks/results/figures/dense_cold.png)
+## References
 
-sparse-ot and POT share the same C++ engine (POT vendors Bonneel's network simplex). The small wrapping overhead disappears at large n where POT's default `numItermax = 100 000` truncates before convergence while our problem-size-aware default does not.
+1. Bonneel, N., van de Panne, M., Paris, S., and Heidrich, W. Displacement interpolation using Lagrangian mass transport. *ACM Transactions on Graphics*, 30(6), 2011. https://github.com/nbonneel/network_simplex
 
-### Sparse cold-start
+2. Schmitzer, B. A sparse multiscale algorithm for dense optimal transport. *Journal of Mathematical Imaging and Vision*, 56(2):238–259, 2016. https://doi.org/10.1007/s10851-016-0653-9
 
-![sparse cold](benchmarks/results/figures/sparse_cold.png)
+3. Rauch, J. and Zanotti, L. An improved implementation of Schmitzer's sparse multiscale algorithm for discrete optimal transport on grids. *arXiv:2502.20905*, 2025. https://arxiv.org/abs/2502.20905
 
-kNN-grid CSR problems. Heatmap shows log₁₀(sparse-ot / POT) wall time; blue = sparse-ot faster. POT and OR-Tools are measured only for n ≤ 2 000; dashed contour marks the 1× crossover. At n ≥ 4 000 with moderate k, sparse-ot wins by 5–15× on time while using <10 MB vs the O(n²) memory a dense solver would require.
-
-### Warm-start speedup — support expansion
-
-![warm speedup expand](benchmarks/results/figures/warm_speedup_expand.png)
-
-Marginals are built from a k_warm-band support so any restriction to that band is feasible. Phase 1 solves on k_warm edges; Phase 2 refines to the full k_full-band support via `warm_start`. Wall time shown is Phase 2 only. The cold baseline is a fresh solve on the same k_full support. At large n with `warm_ratio = 0.95` (k_warm nearly as large as k_full) the refinement short-circuits the optimality check and returns in milliseconds, giving 140–450× speedup over cold.
-
-### Warm-start speedup — perturbed metric
-
-![warm speedup perturb](benchmarks/results/figures/warm_speedup_perturb.png)
-
-Same k-NN support structure, two different cost functions (L2² and L1). Phase 1 solves L2²; Phase 2 re-solves L1 on the identical support using the L2² dual potentials as a warm start. At n = 16 000 this yields ~23× speedup; the cold baseline is a fresh L1 solve.
-
-### Correctness
-
-![accuracy](benchmarks/results/figures/accuracy.png)
-
-All measured sparse-ot cells agree with POT to better than 1e-10 relative cost error. OR-Tools rounds costs to integers (scale factor 10⁶), so its agreement with sparse-ot is bounded at ~1e-6. Marginal errors stay at machine precision (worst case 2.5 × 10⁻¹⁶) across all cells.
-
-## Memory cutoffs
-
-`benchmarks/solvers.py` skips solver calls beyond these thresholds to avoid OOM:
-
-| Constant          | Value     | Effect                                                    |
-|-------------------|-----------|-----------------------------------------------------------|
-| `POT_MAX_N`       | 2 000     | POT (`ot.emd`) skipped when n > 2 000                    |
-| `POT_MAX_NNZ`     | 100 000   | POT skipped when sparse nnz > 100 000                    |
-| `ORTOOLS_MAX_N`   | 2 000     | OR-Tools skipped when n > 2 000                          |
-| `ORTOOLS_MAX_NNZ` | 500 000   | OR-Tools skipped when sparse nnz > 500 000               |
-
-Raise the constants in `benchmarks/solvers.py` for larger hardware.
+4. Flamary, R. et al. POT: Python Optimal Transport. *Journal of Machine Learning Research*, 22(78):1–8, 2021. https://github.com/PythonOT/POT
 
 ## Releasing
 
 PyPI uploads are automated via GitHub Actions and PyPI's
-[trusted-publishing OIDC](https://docs.pypi.org/trusted-publishers/). To
-cut a release:
+[trusted-publishing OIDC](https://docs.pypi.org/trusted-publishers/). To cut a release:
 
-1. Bump `project.version` in `pyproject.toml`, commit, tag (`git tag vX.Y.Z`),
-   push (`git push --tags`).
+1. Bump `project.version` in `pyproject.toml`, commit, tag (`git tag vX.Y.Z`), push (`git push --tags`).
 2. Create a GitHub Release pointing at the tag.
 
-The `.github/workflows/publish.yml` workflow then builds wheels via
-`cibuildwheel` for Linux (x86_64, arm64) and macOS (x86_64, arm64) across
-Python 3.10–3.13, builds an sdist, and uploads everything to PyPI.
-
-First-time setup (one-time, requires owner action on pypi.org):
-
-- Add a trusted publisher for **sparse-ot** with owner = `JBobrutsky`,
-  repository = `sparse-optimal-transport`, workflow = `publish.yml`,
-  environment = `pypi`.
-- For TestPyPI dry runs, register the same on test.pypi.org with
-  environment = `testpypi`. Then trigger `Publish to PyPI` via the
-  Actions UI (workflow_dispatch) with target = `testpypi`.
-
-## Warm-starting from a previous solve
-
-When you have a cheap solve on a restricted support — for instance, a
-small-k nearest-neighbor approximation — you can refine it to a globally
-optimal solution on a richer support without paying for a cold solve.
-
-```python
-import numpy as np, scipy.sparse, sparse_ot as sot
-
-# Phase 1 — cheap cold solve on a coarse support (k = 8 NN).
-M_coarse = build_knn_cost(points, k=8)
-G_coarse, info = sot.emd(a, b, M_coarse, log=True)
-
-# Phase 2 — refine to optimum on a denser support (k = 64). The full
-# (G, info) tuple is the warm-start payload: G_coarse lets us return
-# immediately when the warm-start is already optimal on M_full; info
-# supplies (u, v).
-M_full = build_knn_cost(points, k=64)
-G_opt, info_opt = sot.emd(a, b, M_full,
-                          warm_start=(G_coarse, info), log=True)
-
-print(info_opt["refine"])
-# {'warm_start_optimal': False, 'num_passes': 1,
-#  'initial_min_reduced_cost': -0.014, 'edges_added': 488}
-
-# Chain: refine again on an even denser support.
-M_finer = build_knn_cost(points, k=256)
-G_final, info_final = sot.emd(a, b, M_finer,
-                              warm_start=(G_opt, info_opt), log=True)
-```
-
-The refinement path is sparse-only (CSR `M_full` required) and exact: the
-returned flow is provably optimal on `M_full`. `G_warm` may be passed as
-either CSR or a dense ndarray. See `docs/refinement.md` for the regime
-where this beats a cold solve, with measured speedups on the `knn-grid`
-benchmark.
+The `.github/workflows/publish.yml` workflow builds wheels via `cibuildwheel` for Linux
+(x86\_64, arm64) and macOS (x86\_64, arm64) across Python 3.10–3.13 and uploads to PyPI.
 
 ## License
 

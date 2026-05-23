@@ -53,7 +53,13 @@ def _marginal_errors(G, a, b):
 
 def solve_sparse_ot(a, b, M, warm=None) -> SolveResult:
     """Calls sparse_ot.emd(a, b, M, warm_start=warm, log=True). Always runs."""
+    import scipy.sparse
     from sparse_ot import emd
+
+    if scipy.sparse.issparse(M):
+        n, m = M.shape
+        if M.nnz > 0.5 * n * m:
+            M = M.toarray()
 
     def _run():
         return emd(a, b, M, warm_start=warm, log=True)

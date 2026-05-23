@@ -177,8 +177,8 @@ def test_report_quick_produces_pngs(tmp_path):
 
 
 def test_fig_warm_speedup_expand_picks_largest_ratio_and_k(tmp_path):
-    """fig_warm_speedup_expand picks the largest k_warm/k ratio with k_warm < k;
-    tiebreak largest k."""
+    """fig_warm_speedup_expand picks the k with the most ratio variants;
+    tiebreak largest k. Returns (k_plot, list_of_ratios)."""
     from benchmarks.report import fig_warm_speedup_expand
 
     cells = [
@@ -205,7 +205,7 @@ def test_fig_warm_speedup_expand_picks_largest_ratio_and_k(tmp_path):
          "marginal_err_a": 0.0, "marginal_err_b": 0.0, "extrapolated": False},
     ]
     result = fig_warm_speedup_expand(cells, tmp_path)
-    assert result == (32, 0.9), f"expected (32, 0.9), got {result}"
+    assert result == (32, [0.9]), f"expected (32, [0.9]), got {result}"
     assert (tmp_path / "warm_speedup_expand.png").exists()
 
 

@@ -133,6 +133,11 @@ def fig_dense_cold(cells: list, figures_dir: Path) -> None:
     ax.set_ylabel("wall time (s)")
     ax.legend()
     ax.grid(True, which="both", alpha=0.3)
+
+    all_ns = sorted({n for pts in solver_data.values() for n in pts})
+    ax.set_xticks(all_ns)
+    ax.xaxis.set_major_formatter(plt.matplotlib.ticker.ScalarFormatter())
+
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
@@ -178,11 +183,6 @@ def fig_sparse_cold(cells: list, figures_dir: Path) -> None:
     im = ax.imshow(grid, aspect="auto", origin="lower", cmap="RdBu_r", vmin=-2, vmax=2)
     cbar = fig.colorbar(im, ax=ax)
     cbar.set_label("log10(sparse-ot / POT)")
-
-    try:
-        ax.contour(grid, levels=[0.0], colors="black", linewidths=1.5)
-    except Exception:
-        pass
 
     ax.set_yticks(range(len(ns)))
     ax.set_yticklabels(ns)
@@ -237,44 +237,52 @@ def fig_warm_speedup_expand(cells: list, figures_dir: Path):
         _placeholder(out_path, "No (k, warm_ratio) with k_warm < k and matching cold cell")
         return None
 
-    # d) Pick LARGEST k_warm/k ratio (warm-start most effective when full support
-    # is only slightly larger); tiebreak largest k.
-    k_plot, ratio_plot = max(
-        candidates,
-        key=lambda kw: (max(2, int(round(kw[0] * kw[1]))) / kw[0], kw[0]),
-    )
+    # d) Pick k that has the most ratio variants available; tiebreak largest k.
+    k_counts: dict[int, int] = {}
+    for k, wr in candidates:
+        k_counts[k] = k_counts.get(k, 0) + 1
+    k_plot = max(k_counts, key=lambda k: (k_counts[k], k))
+    ratios_for_k = sorted(wr for (k, wr) in candidates if k == k_plot)
 
-    # e) Build cold_pts and warm_pts.
+    # e) One cold line for k_plot (cold is independent of warm_ratio).
     cold_pts = sorted(
         (n, t) for (n, k, wr), t in cold_map.items()
-        if k == k_plot and wr == ratio_plot
+        if k == k_plot
     )
-    warm_pts = sorted(
-        (c["n"], c["wall_s"])
-        for c in cells
-        if c["scenario"] == "sparse_warm_expand"
-        and c["solver"] == "sparse_ot"
-        and not c["extrapolated"]
-        and c["wall_s"] is not None
-        and c["k"] == k_plot
-        and c.get("warm_ratio") == ratio_plot
-    )
+    # Deduplicate: keep one wall_s per n (they should all be identical across wr).
+    cold_by_n: dict[int, float] = {}
+    for n, t in cold_pts:
+        cold_by_n.setdefault(n, t)
+    cold_pts = sorted(cold_by_n.items())
 
     # f) Plot
+    warm_colors = plt.matplotlib.colormaps["YlOrRd"](
+        [0.3 + 0.7 * i / max(len(ratios_for_k) - 1, 1) for i in range(len(ratios_for_k))]
+    )
+
     fig, ax = plt.subplots(figsize=(7, 5))
     if cold_pts:
         ns_c, ts_c = zip(*cold_pts)
         ax.plot(ns_c, ts_c, color="tab:blue", marker="o", linestyle="-", label="cold")
-    if warm_pts:
-        ns_w, ts_w = zip(*warm_pts)
-        ax.plot(
-            ns_w, ts_w, color="tab:orange", marker="s", linestyle="-",
-            label=f"warm (ratio={ratio_plot}, k={k_plot})",
+    for ratio, color in zip(ratios_for_k, warm_colors):
+        warm_pts = sorted(
+            (c["n"], c["wall_s"])
+            for c in cells
+            if c["scenario"] == "sparse_warm_expand"
+            and c["solver"] == "sparse_ot"
+            and not c["extrapolated"]
+            and c["wall_s"] is not None
+            and c["k"] == k_plot
+            and c.get("warm_ratio") == ratio
         )
+        if warm_pts:
+            ns_w, ts_w = zip(*warm_pts)
+            ax.plot(ns_w, ts_w, color=color, marker="s", linestyle="-",
+                    label=f"warm ratio={ratio}")
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_title(f"Warm-expand speedup at k={k_plot} (warm_ratio={ratio_plot})")
+    ax.set_title(f"Warm-expand speedup at k={k_plot}")
     ax.set_xlabel("n")
     ax.set_ylabel("wall time (s)")
     ax.legend()
@@ -283,7 +291,7 @@ def fig_warm_speedup_expand(cells: list, figures_dir: Path):
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
 
-    return (k_plot, ratio_plot)
+    return (k_plot, ratios_for_k)
 
 
 def fig_warm_speedup_perturb(cells: list, figures_dir: Path):
@@ -359,12 +367,11 @@ def fig_warm_speedup_perturb(cells: list, figures_dir: Path):
 # ---------------------------------------------------------------------------
 
 def fig_accuracy(cells: list, figures_dir: Path) -> None:
-    """Relative cost error: sparse-ot vs POT (dense) and vs OR-Tools (sparse)."""
+    """Relative cost error of sparse-ot vs POT for dense and sparse cold problems."""
     out_path = figures_dir / "accuracy.png"
 
     ot_cost: dict[tuple, float] = {}
     pot_cost: dict[tuple, float] = {}
-    ortools_cost: dict[tuple, float] = {}
 
     for c in cells:
         if c["extrapolated"] or c["cost"] is None:
@@ -374,53 +381,31 @@ def fig_accuracy(cells: list, figures_dir: Path) -> None:
             ot_cost[key] = c["cost"]
         elif c["solver"] == "pot":
             pot_cost[key] = c["cost"]
-        elif c["solver"] == "ortools":
-            ortools_cost[key] = c["cost"]
 
     xs, ys, colors = [], [], []
-
-    # sparse-ot vs OR-Tools: dense cold.
-    for key in sorted(set(ot_cost) & set(ortools_cost)):
-        if key[0] != "dense_cold":
+    for key in sorted(set(ot_cost) & set(pot_cost)):
+        scenario = key[0]
+        if scenario not in ("dense_cold", "sparse_cold"):
             continue
-        rel_err = abs(ot_cost[key] - ortools_cost[key]) / max(abs(ortools_cost[key]), 1e-30)
+        rel_err = abs(ot_cost[key] - pot_cost[key]) / max(abs(pot_cost[key]), 1e-30)
         xs.append(key[1])
         ys.append(rel_err)
-        colors.append("tab:blue")
-
-    # sparse-ot vs OR-Tools: sparse cold.
-    for key in sorted(set(ot_cost) & set(ortools_cost)):
-        if key[0] != "sparse_cold":
-            continue
-        rel_err = abs(ot_cost[key] - ortools_cost[key]) / max(abs(ortools_cost[key]), 1e-30)
-        xs.append(key[1])
-        ys.append(rel_err)
-        colors.append("tab:orange")
-
-    # POT vs OR-Tools: dense cold only.
-    for key in sorted(set(pot_cost) & set(ortools_cost)):
-        if key[0] != "dense_cold":
-            continue
-        rel_err = abs(pot_cost[key] - ortools_cost[key]) / max(abs(ortools_cost[key]), 1e-30)
-        xs.append(key[1])
-        ys.append(rel_err)
-        colors.append("tab:green")
+        colors.append("tab:blue" if scenario == "dense_cold" else "tab:orange")
 
     fig, ax = plt.subplots(figsize=(7, 5))
     if xs:
         ax.scatter(xs, ys, c=colors, alpha=0.7, s=40)
-        ax.axhline(1e-10, color="k", linestyle="--")
-        ax.axhline(1e-6, color="grey", linestyle=":", label="1e-6 OR-Tools int rounding")
+        ax.axhline(1e-10, color="k", linestyle="--", label="1e-10 reference")
     else:
         plt.close(fig)
-        _placeholder(out_path, "No cells for accuracy comparison")
+        _placeholder(out_path, "No common (scenario, n, k) for sparse_ot and pot costs")
         return
 
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("n")
-    ax.set_ylabel("relative cost error vs OR-Tools")
-    ax.set_title("Correctness (reference: OR-Tools)")
+    ax.set_ylabel("|cost_sparse_ot − cost_pot| / cost_pot")
+    ax.set_title("Correctness: sparse-ot vs POT")
 
     unique_ns = sorted(set(xs))
     ax.set_xticks(unique_ns)
@@ -429,13 +414,10 @@ def fig_accuracy(cells: list, figures_dir: Path) -> None:
     from matplotlib.lines import Line2D
     legend_handles = [
         Line2D([0], [0], marker="o", color="w", markerfacecolor="tab:blue",
-               markersize=8, label="sparse-ot, dense cold"),
+               markersize=8, label="dense cold"),
         Line2D([0], [0], marker="o", color="w", markerfacecolor="tab:orange",
-               markersize=8, label="sparse-ot, sparse cold"),
-        Line2D([0], [0], marker="o", color="w", markerfacecolor="tab:green",
-               markersize=8, label="POT, dense cold"),
+               markersize=8, label="sparse cold"),
         Line2D([0], [0], color="k", linestyle="--", label="1e-10 reference"),
-        Line2D([0], [0], color="grey", linestyle=":", label="1e-6 OR-Tools int rounding"),
     ]
     ax.legend(handles=legend_handles)
     ax.grid(True, which="both", alpha=0.3)

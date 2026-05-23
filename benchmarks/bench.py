@@ -35,8 +35,19 @@ KNN_NS_QUICK   = [200, 1_000]
 KNN_KS_QUICK   = [4, 32]
 KNN_NS_MID     = [200, 1_000, 4_000, 16_000]
 KNN_KS_MID     = [2, 8, 32, 128, 512]
-KNN_NS_FULL    = [200, 1_000, 4_000, 16_000, 64_000, 256_000, 1_000_000, 4_000_000, 16_000_000]
-KNN_KS_FULL    = [2, 8, 32, 128, 512, 2_048]
+# n=64k is the practical ceiling: sparse_ot scales ~n^2 for k≥8, so k=8 at n=64k
+# already takes ~65 s/run × 5 = 5 min, and k=32 ~10 min. Beyond 64k the per-cell
+# time grows quadratically and a 5-rep full sweep becomes impractical.
+# k=2048 is removed: at n=64k that is 131 M edges (OOM risk).
+KNN_NS_FULL    = [200, 1_000, 4_000, 16_000, 64_000]
+KNN_KS_FULL    = [2, 8, 32, 128, 512]
+# Cells with nnz > this threshold are skipped in the full sweep and covered by
+# the ortools/pot power-law extrapolation instead.  At n=64k:
+#   k=128 → 8.2 M edges (~20 min/cell with 5 runs) — skip
+#   k=512 → 32.8 M edges — skip
+# At n=16k all k values stay under 8 M (16k×512 = 8.2 M — borderline, but the
+# mid already has that data so the full 5-rep pass is worth keeping).
+FULL_NNZ_CAP   = 8_000_000
 
 KNN_NS_WARM_MAX = 1_000_000
 WARM_RATIOS     = [0.5, 0.75, 0.9, 0.95]
@@ -108,7 +119,7 @@ def run_dense_cold(dense_ns: list[int], runs: int) -> list[dict]:
     return cells
 
 
-def run_sparse_cold(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dict]:
+def run_sparse_cold(knn_ns: list[int], knn_ks: list[int], runs: int, nnz_cap: int | None = None) -> list[dict]:
     """Scenario 2: sparse_cold — k-NN grid OT problems, no warm start."""
     from benchmarks.problems import generate_knn_grid_problem
     from benchmarks.solvers import solve_sparse_ot, solve_pot, solve_ortools
@@ -117,6 +128,9 @@ def run_sparse_cold(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dic
     for n in knn_ns:
         for k in knn_ks:
             if k > n:
+                continue
+            if nnz_cap is not None and n * k > nnz_cap:
+                print(f"  sparse_cold n={n} k={k} SKIPPED (nnz={n*k:,} > cap {nnz_cap:,})", flush=True)
                 continue
             a, b, M, _ = generate_knn_grid_problem(n, k, seed=0)
             M = M.tocsr()
@@ -134,7 +148,7 @@ def run_sparse_cold(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dic
     return cells
 
 
-def run_sparse_warm_expand(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dict]:
+def run_sparse_warm_expand(knn_ns: list[int], knn_ks: list[int], runs: int, nnz_cap: int | None = None) -> list[dict]:
     """Scenario: phase 1 solves on k_warm-NN support (feasible by construction),
     phase 2 (timed) refines on the larger k_full-NN support."""
     from benchmarks.problems import generate_knn_grid_warm_expand
@@ -147,6 +161,9 @@ def run_sparse_warm_expand(knn_ns: list[int], knn_ks: list[int], runs: int) -> l
             continue
         for k_full in knn_ks:
             if k_full > n:
+                continue
+            if nnz_cap is not None and n * k_full > nnz_cap:
+                print(f"  sparse_warm_expand n={n} k_full={k_full} SKIPPED (nnz={n*k_full:,} > cap {nnz_cap:,})", flush=True)
                 continue
             for warm_ratio in WARM_RATIOS:
                 k_warm = max(2, int(round(k_full * warm_ratio)))
@@ -175,7 +192,7 @@ def run_sparse_warm_expand(knn_ns: list[int], knn_ks: list[int], runs: int) -> l
     return cells
 
 
-def run_sparse_warm_perturb(knn_ns: list[int], knn_ks: list[int], runs: int) -> list[dict]:
+def run_sparse_warm_perturb(knn_ns: list[int], knn_ks: list[int], runs: int, nnz_cap: int | None = None) -> list[dict]:
     """Scenario: phase 1 solves with M_squared (L2^2 costs), phase 2 (timed)
     refines with M_abs (L1 costs) on the same k-NN support."""
     from benchmarks.problems import generate_knn_grid_warm_perturb
@@ -188,6 +205,9 @@ def run_sparse_warm_perturb(knn_ns: list[int], knn_ks: list[int], runs: int) -> 
             continue
         for k in knn_ks:
             if k > n:
+                continue
+            if nnz_cap is not None and n * k > nnz_cap:
+                print(f"  sparse_warm_perturb n={n} k={k} SKIPPED (nnz={n*k:,} > cap {nnz_cap:,})", flush=True)
                 continue
             a, b, M_sq, M_abs, _ = generate_knn_grid_warm_perturb(n=n, k=k, seed=0)
             M_sq = M_sq.tocsr()
@@ -360,11 +380,11 @@ def main():
     args = ap.parse_args()
 
     if args.quick:
-        dense_ns, knn_ns, knn_ks, runs, tag = (DENSE_NS_QUICK, KNN_NS_QUICK, KNN_KS_QUICK, 1, "quick")
+        dense_ns, knn_ns, knn_ks, runs, tag, nnz_cap = (DENSE_NS_QUICK, KNN_NS_QUICK, KNN_KS_QUICK, 1, "quick", None)
     elif args.mid:
-        dense_ns, knn_ns, knn_ks, runs, tag = (DENSE_NS_MID, KNN_NS_MID, KNN_KS_MID, 1, "mid")
+        dense_ns, knn_ns, knn_ks, runs, tag, nnz_cap = (DENSE_NS_MID, KNN_NS_MID, KNN_KS_MID, 1, "mid", None)
     else:
-        dense_ns, knn_ns, knn_ks, runs, tag = (DENSE_NS_FULL, KNN_NS_FULL, KNN_KS_FULL, 5, "full")
+        dense_ns, knn_ns, knn_ks, runs, tag, nnz_cap = (DENSE_NS_FULL, KNN_NS_FULL, KNN_KS_FULL, 5, "full", FULL_NNZ_CAP)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     suffix   = f"_{tag}" if tag != "full" else ""
@@ -372,9 +392,9 @@ def main():
 
     cells = []
     cells += run_dense_cold(dense_ns, runs)
-    cells += run_sparse_cold(knn_ns, knn_ks, runs)
-    cells += run_sparse_warm_expand(knn_ns, knn_ks, runs)
-    cells += run_sparse_warm_perturb(knn_ns, knn_ks, runs)
+    cells += run_sparse_cold(knn_ns, knn_ks, runs, nnz_cap=nnz_cap)
+    cells += run_sparse_warm_expand(knn_ns, knn_ks, runs, nnz_cap=nnz_cap)
+    cells += run_sparse_warm_perturb(knn_ns, knn_ks, runs, nnz_cap=nnz_cap)
 
     fits = _compute_fits(cells)
     cells = _add_extrapolated_cells(cells, fits, dense_ns, knn_ns, knn_ks)

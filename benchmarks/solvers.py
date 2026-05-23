@@ -56,7 +56,7 @@ def solve_sparse_ot(a, b, M, warm=None) -> SolveResult:
     import scipy.sparse
     from sparse_ot import emd
 
-    if scipy.sparse.issparse(M):
+    if scipy.sparse.issparse(M) and warm is None:
         n, m = M.shape
         if M.nnz > 0.5 * n * m:
             M = M.toarray()

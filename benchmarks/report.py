@@ -397,8 +397,17 @@ def fig_accuracy(cells: list, figures_dir: Path) -> None:
     ax.set_yscale("log")
     ax.set_xlabel("n")
     ax.set_ylabel("|cost_sparse_ot − cost_pot| / cost_pot")
-    ax.set_title("Correctness: sparse-ot vs POT (blue=dense, orange=sparse)")
-    ax.legend()
+    ax.set_title("Correctness: sparse-ot vs POT")
+
+    from matplotlib.lines import Line2D
+    legend_handles = [
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="tab:blue",
+               markersize=8, label="dense cold"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="tab:orange",
+               markersize=8, label="sparse cold"),
+        Line2D([0], [0], color="k", linestyle="--", label="1e-10 reference"),
+    ]
+    ax.legend(handles=legend_handles)
     ax.grid(True, which="both", alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
